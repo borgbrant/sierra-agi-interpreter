@@ -31,7 +31,7 @@ import { parseSound } from '../resources/sound.ts';
 import { computerTypeFor, MONITOR, monitorTypeFor } from './hardware.ts';
 import { Inventory } from './inventory.ts';
 import { defaultLayout, type ScreenLayout } from './layout.ts';
-import { KeyPress, type Interaction, type Key } from './interaction.ts';
+import { CommandLine, KeyPress, type Interaction, type Key } from './interaction.ts';
 import { KeyBindings, MenuBar } from './menu.ts';
 import { noBlock, type Block } from './motion.ts';
 import { FLAG, GameState, MAX_SOUND_VOLUME, SOUND_GENERATOR_VALUE, VAR } from './state.ts';
@@ -785,6 +785,24 @@ export class Machine {
     }
 
     if (this.inputAccepted && this.prompt.visible) {
+      // A display with no room for an input row gets a box instead, and the
+      // box opens on the keystroke that would have gone into the row. It
+      // covers the scene, so the game parks on it until the line is handed
+      // over; see CommandLine.
+      if (this.monochrome) {
+        if (key.char >= 0x20 && key.char <= 0x7e) {
+          this.pending = new CommandLine(
+            String.fromCharCode(key.char),
+            this.prompt.cursorChar,
+            this.prompt.maxLength,
+          );
+          return true;
+        }
+        // Nothing else opens it: an arrow key still walks ego, and Enter on an
+        // empty line submits nothing, exactly as it does on a colour display.
+        return this.keyboard.press(key.name, key.code);
+      }
+
       const line = this.prompt.key(key.char, key.name);
       if (line !== null) {
         this.submitLine(line);
@@ -879,6 +897,18 @@ export class Machine {
   describeMachine(): void {
     this.state.setVar(VAR.MONITOR_TYPE, monitorTypeFor(this.displayMode));
     this.state.setVar(VAR.COMPUTER_TYPE, computerTypeFor(this.sound.chip));
+  }
+
+  /**
+   * Whether the display is monochrome.
+   *
+   * Read from the reserved variable rather than from {@link displayMode},
+   * because the variable is the fact: it is what the scripts read, and
+   * `toggle.monitor` can change it under them. Nothing here asks which driver
+   * is running -- that is the display seam's business and off limits.
+   */
+  get monochrome(): boolean {
+    return this.state.getVar(VAR.MONITOR_TYPE) === MONITOR.MONO;
   }
 
   /**

@@ -23,6 +23,20 @@ const DIR_FILES = ['LOGDIR', 'PICDIR', 'VIEWDIR', 'SNDDIR'];
 /** Other game data the engine reads. */
 const DATA_FILES = ['OBJECT', 'WORDS.TOK'];
 
+/**
+ * Interpreter files the engine reads, copied when they are there.
+ *
+ * Not game resources: these belong to the AGI interpreter that shipped
+ * alongside the game, and a copy of a game need not include them. So they are
+ * optional -- a missing one costs a mode some fidelity, never the ability to
+ * play -- which is the opposite of the rule for the files above.
+ *
+ * `HGC_FONT` is the Hercules driver's own 8x12 font, 3072 bytes of it. The
+ * engine draws its own CGA and EGA font when it is absent, and that reads as
+ * exactly the wrong font, so it is worth copying wherever it exists.
+ */
+const INTERPRETER_FILES = ['HGC_FONT'];
+
 /** Volume files are numbered, so they are discovered rather than listed. */
 const VOLUME = /^VOL\.\d+$/;
 
@@ -61,6 +75,7 @@ async function main() {
       (a, b) => Number(a.slice(4)) - Number(b.slice(4)),
     ),
     ...DATA_FILES,
+    ...INTERPRETER_FILES.filter((name) => available.has(name)),
   ];
 
   const missing = wanted.filter((name) => !available.has(name));
@@ -94,6 +109,10 @@ async function main() {
   const total = files.reduce((sum, f) => sum + f.bytes, 0);
   console.log(`Copied ${files.length} file(s) (${(total / 1024).toFixed(0)} KiB) from ${source}`);
   for (const f of files) console.log(`  ${f.name.padEnd(10)} ${f.bytes}`);
+
+  for (const name of INTERPRETER_FILES.filter((n) => !available.has(n))) {
+    console.log(`  ${name.padEnd(10)} not in this copy of the game; the engine has a fallback`);
+  }
 }
 
 try {

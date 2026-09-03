@@ -224,19 +224,26 @@ test('unwritten cells are transparent, so the picture shows through', () => {
   assert.equal(display.pixels[5 * 8 * 320 + 8], 7);
 });
 
-test('clearing to a colour writes that colour; erasing makes cells transparent', () => {
+test('clearing writes blanks in that colour, and the picture no longer shows', () => {
+  // `clear.lines` paints, as AGI's does: it has one framebuffer and no text
+  // plane, so clearing a row puts that colour over whatever was there. It
+  // emptied the cells instead until M13, and the two were indistinguishable
+  // for seven milestones because nothing is behind rows 22 to 24 on a 320x200
+  // screen. Hercules' picture reaches them, and that is where they came apart.
   const layer = new TextLayer();
 
   layer.write('hello', 0, 22, 1, 0);
   assert.equal(layer.rowIsEmpty(22), false);
 
   layer.fillRows(22, 22, 4);
-  assert.equal(layer.rowIsEmpty(22), false, 'filled cells are still written cells');
-  assert.equal(layer.background[TextLayer.index(0, 22)], 4);
+  assert.equal(layer.chars[TextLayer.index(0, 22)], 0x20, 'a blank, not nothing');
+  assert.equal(layer.background[TextLayer.index(0, 22)], 4, 'in the colour asked for');
 
-  layer.erase(0, 22, COLUMNS - 1, 22);
-  assert.equal(layer.rowIsEmpty(22), true, 'now the picture shows through again');
+  // But a painted blank is not writing, and the one question rowIsEmpty
+  // answers is whether the command line may have the row.
+  assert.equal(layer.rowIsEmpty(22), true, 'the command line may still use it');
 });
+
 
 test('writing off the edges is clipped, not wrapped', () => {
   const layer = new TextLayer();

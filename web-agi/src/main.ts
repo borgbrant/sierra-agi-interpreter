@@ -7,6 +7,7 @@ import { FLAG, VAR } from './engine/state.ts';
 import { bindKeyboard } from './input/keyboard.ts';
 import { present } from './engine/present.ts';
 import { Renderer } from './render/renderer.ts';
+import { decodeHgcFont, type HgcFont } from './render/hgcfont.ts';
 import { fingerprint } from './engine/snapshot.ts';
 import { ResourceManager } from './resources/manager.ts';
 import { browserStorage, exportSaves, importSaves, SaveStore } from './storage/saves.ts';
@@ -44,6 +45,19 @@ try {
   if (!wordBytes) throw new Error('WORDS.TOK is missing from the bundled game');
 
   const objects = parseObjectFile(objectBytes);
+
+  // Hercules brought its own font, and unlike the CGA and EGA font -- which
+  // lived in the video BIOS and so has to be carried in the engine -- this one
+  // is a file. Optional: a copy of the game without it costs Hercules its
+  // letterforms and nothing else, so a failure to read or decode it is
+  // reported and shrugged off rather than allowed to stop the game.
+  let herculesFont: HgcFont | undefined;
+  try {
+    const bytes = await source.read('HGC_FONT');
+    if (bytes) herculesFont = decodeHgcFont(bytes);
+  } catch (cause) {
+    shell.showError('HGC_FONT could not be read; Hercules will draw in the engine\'s font', cause);
+  }
   const vocabulary = Vocabulary.parse(wordBytes);
   const summary = summariseGame(resources, objects, vocabulary);
 
@@ -89,7 +103,7 @@ try {
 
   // The renderer is built after the settings are read, so the first frame is
   // drawn on the adapter the player chose rather than on EGA and then swapped.
-  const renderer = new Renderer(settings.graphics);
+  const renderer = new Renderer(settings.graphics, { herculesFont });
 
   const controls = new Controls(shell.tools, {
     settings,

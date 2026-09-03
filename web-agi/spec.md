@@ -24,7 +24,8 @@ game data    bundled with the app at build time
 v1 scope     playable core; no sound, no save/restore   (M0-M6, shipped)
 v2 scope     sound (M7) and save/restore (M8), both shipped
 v3 scope     the sound chip switch (M9), the display seam (M10), what the
-             scripts are told (M11) and CGA (M12), all shipped; Hercules (M13)
+             scripts are told (M11), CGA (M12) and Hercules (M13), all shipped
+v4 scope     the shell the player sees (M14), specified and not started
 code sharing npm workspaces, web-agi imports agi-extract
 ```
 
@@ -579,9 +580,9 @@ it — and each of those paths sets the waiting script's flag, for the same reas
 The original shipped four display drivers and the game still carries them:
 `EGA_GRAF.OVL`, `CGA_GRAF.OVL`, `JR_GRAF.OVL` and `HGC_GRAF.OVL`, with a
 `HGC_FONT` and a pair of `*_OBJS` overlays beside them. The engine now draws
-through a driver and the shell chooses which — **three drivers, not four**. EGA
-and CGA draw in their own colours; Hercules is answered for and drawn in EGA's
-until M13. This is what the other two mean, and why there is no third.
+through a driver and the shell chooses which — **three drivers, not four**, and
+all three draw in their own colours at their own size. This is what the other
+two mean, and why there is no third.
 
 A mode is two things at once, and that is the whole difficulty -- and the reason
 the work is four milestones rather than one. It is an adapter's palette to draw
@@ -593,8 +594,8 @@ palette can only be looked at.
 ```text
 EGA        16 colours, 160x168 doubled to 320
 CGA        4 colours, with the 16 reached by dithering pairs of pixels
-Hercules   two colours, its own font, its own object drawing -- and a layout
-           the game moves itself
+Hercules   two colours at 720x348, an 18x12 cell, and a screen with no room
+           at the bottom for a command line
 ```
 
 The dither costs nothing, which is why one set of resources could serve four
@@ -677,6 +678,130 @@ mappings that scored better on lost boundaries each hid a whole object, because
 a boundary count measures an outline's perimeter while the object is its area.
 What each mapping costs is recorded beside it and recomputed by a test, so
 changing it is a decision with a number attached rather than a matter of taste.
+
+### Hercules, and what photographs settled
+
+Its geometry is arithmetic once the photographs are read. The adapter is
+720x348; the picture is four times its width by twice its height, 640x336,
+centred with 40 unlit pixels either side; and it reaches the bottom of the
+screen with no dead band under it. 640x336 is 1.905:1, exactly what EGA shows
+the same picture at with 320x168, so the buffer wants square pixels.
+
+The character grid goes across **the picture's 640 pixels, not the screen's
+720**: the photographs show the status bar exactly as wide as the scene, and the
+game's bottom band starting at the scene's left edge. So the cell is 16 wide,
+and the glyph fills it — doubled from the font's 8 bits, which is the thick
+wide lettering the photographs show. The air between the letters is the font's
+own: every PC font of this family leaves its rightmost column blank — only two
+of the engine's 95 glyphs use theirs — and that column doubles to two pixels of
+ground. AGI's rows 1 to 24 are the picture's 336
+rows, which makes the cell 14 tall and puts rows 22 to 24 on the screen's bottom
+edge, where the photographs have the band; `HGC_FONT`'s glyphs fill 12 of the
+14, leaving two of leading.
+Twenty-five 14-row cells is 350 against a 348-row card, so the last two pixels
+of row 24 fall off.
+
+The game's rows 22 to 24 therefore have scene behind them. That is where it puts
+"Please answer a, b, c, or d:" and its captions, and it gets a black bar to put
+them on by clearing those rows first — which is why `clear.lines` has to
+**paint** rather than empty cells. See *The text plane* below.
+
+Two colours over a four-by-two cell is nine densities for sixteen colours, and
+six of AGI's colours crowd into two of them. So the pattern repeats over a
+**block of two AGI pixels each way** — eight pixels across by four down is 32,
+which is 33 densities — while every pixel still shows only its own colour's
+value, so nothing is blended with a neighbour. Density is luminance, pushed
+apart where two colours would share a level, so **all sixteen stay
+distinguishable**; and each colour fills to that density in one of three ways —
+an even sprinkle, hatching, or fine horizontal lines — handed out so that any
+two colours at neighbouring levels fill differently. That last part is what the
+photographs are for: they show surfaces carrying a weave of their own rather
+than one weave at sixteen brightnesses.
+
+### The text plane
+
+The engine keeps text in a plane of character cells that the picture shows
+through, rather than in the picture itself: that is what lets a window close
+without the scene being redrawn. `clear.lines` is the one command where the
+difference bites, because AGI has no such plane — it paints the colour over
+whatever was there.
+
+So it paints here too. It emptied cells until M13, and the two were
+indistinguishable for seven milestones: on a 320x200 screen nothing is behind
+rows 22 to 24, so transparent and black look the same. Hercules is where they
+came apart, and the defect turned out to be on EGA as well — the game clears
+**row 21**, the picture's last row, in two places, and prints a caption on the
+black bar that makes.
+
+Making it paint exposed a second gap, which M8's round-trip test found the same
+minute: the snapshot did not carry the text plane. It had never needed to, for
+the same reason. It carries it now, as a sparse list of the cells that hold
+something.
+
+The phosphor is amber. It belonged to the monitor rather than to the card and
+green was equally common, but every photograph of this game on a Hercules is
+amber.
+
+### The prompt box
+
+The photographs show a box over the scene with a title on one line, a blank
+line, and the typed text in an inverse field — while the screen's bottom rows
+carry the game's own text instead. The game's own questions use the same box:
+`get.num`'s "How old are you?" is drawn exactly like the command line, while a
+plain message window beside it is still just text in a box. `ENTER COMMAND` is
+the interpreter's own words — no message in any LOGIC resource contains them.
+
+Not because there is nowhere else to put it, which was the first explanation
+here and was wrong: rows 22 to 24 exist on Hercules too. The original chose a
+box, and the engine follows the evidence rather than an argument that turned out
+to be circular.
+
+The engine draws it whenever the display is monochrome, read from the monitor
+variable rather than from the renderer — the same fact the scripts read, so
+nothing above the display seam has to ask which driver is running. The game's
+own `toggle.monitor` therefore moves the command line into a box and back.
+
+Because it covers the scene the scene has to hold still, so it is an interaction
+rather than a layer of the frame: it opens on the keystroke that would have gone
+onto an input row, the cycle parks on it, and the game carries on when the line
+is handed over. Escape abandons it, and so does backspacing away the last
+character. It carries no `]` — that marker belongs to the input *row*, and the
+box announces itself with its title.
+
+### Hercules is a simulation, and deliberately not claimed to be more
+
+Of the three modes it is the least faithful, and every reason is a file this
+repository does not have. `HGC_GRAF.OVL`, `HGC_OBJS.OVL` and `HGC_FONT` are
+*interpreter* files, and the bundling decision above ships only the game's
+resources. So the mode is derived from arithmetic, a photograph and judgement,
+and these are the places that shows:
+
+```text
+the letter shapes         the engine's own 8x8 CGA and EGA font stretched into
+                          a 16x14 cell, not HGC_FONT's twelve-row glyphs -- and
+                          it reads as exactly that, which makes this the most
+                          visible of the four
+which weave each          every colour has one, as the photographs show, but
+surface carries           the three families and who gets which are derived
+                          rather than read out of HGC_GRAF.OVL
+how sprites are drawn     dithered like the picture, where the original had a
+                          separate overlay for them
+AGI's 25 rows on 29       the picture covers 28 of them, so the game's own
+                          rows 22-24 sit on scene and the rest is unreachable
+                          by any text row; nothing decides whether the original
+                          agreed
+```
+
+Each names what would close it: a font file, the graphics overlay, the object
+overlay, and a fact that may not be recorded anywhere. **The mode can be
+improved further**, and none of it needs the engine rearranged — a better table
+is a better table behind the same seam. [plan.md](plan.md) records what each
+attempt was and why it was replaced.
+
+None of the four makes the game unplayable, and the guarantee that matters
+holds: all sixteen colours stay distinguishable, so nothing in any picture
+disappears into anything else. What is missing is period detail, and it is
+missing because the files that hold it are not here.
 
 ## The sound chip (M9)
 
@@ -807,18 +932,17 @@ Three controls, and every one of them does something:
 
 ```text
 Graphics    EGA / CGA / Hercules      a driver each, and the scripts told
-                                      which; only EGA's draws in its own
-                                      colours until M12 and M13
+                                      which; all three draw in their own
+                                      colours, at their own size
 Sound chip  PC speaker / PCjr         wired: one voice, or four
 Sound on    on / off                  wired: the game's own sound flag
 ```
 
 The graphics choice is two things at once — what the game is drawn in, and what
-the game is *told* it is being drawn on. The second half is real for all three
-modes: a game told it is on a mono screen lays its opening out for one, and a
-game told it is on CGA is offered a graphics-mode toggle. The first is real for
-EGA alone. Each choice says which of the two it is getting rather than implying
-more than it does.
+the game is *told* it is being drawn on — and both halves are real for all three
+modes. A game told it is on a mono screen lays its opening out for one and gets
+its command line in a box; one told it is on CGA is offered a graphics-mode
+toggle.
 
 The two sound controls are wired. The chip switch changes what is played and
 what the scripts are told they are being played on, through one entry point so
@@ -882,9 +1006,10 @@ only the final blit needs a canvas.
 
 ## Milestones
 
-Each milestone ends with something observable, not just code. M0-M9 are done;
-M10-M13 are specified and not started. The numbering is the one
-[plan.md](plan.md) works to.
+Each milestone ends with something observable, not just code. M0-M13 are done;
+M14 is specified and not started. The numbering is the one [plan.md](plan.md)
+works to, and that document records what each one turned out to need --
+including where it contradicted what was written here first.
 
 ```text
 M0  Workspace foundation
@@ -944,13 +1069,22 @@ M12 CGA
     untouched.
 
 M13 Hercules
-    720x348, two colours, its own 8x12 font and object drawing.
-    Ends with: the canvas follows the driver, and the game is legible on it.
+    720x348, two colours, an 18x12 cell, and the command line in a box.
+    Ends with: the canvas follows the driver, all sixteen colours stay
+    distinguishable as greys, and the game is legible on it. HGC_FONT is not
+    bundled, so the shapes are the IBM font's.
+
+M14 The shell the player sees
+    The page around the engine: the player's surface separated from the
+    developer's, and no shell key shadowing one the game has bound.
+    Ends with: someone who has never opened the repository can play, save
+    and change the display without seeing a cycle count.
 ```
 
 ```text
 M0  complete    M4  complete    M8  complete     M12 complete
-M1  complete    M5  complete    M9  complete     M13 not started
+M1  complete    M5  complete    M9  complete     M13 complete
+                                                 M14 not started
 M2  complete    M6  complete    M10 complete
 M3  complete    M7  complete    M11 complete
 ```

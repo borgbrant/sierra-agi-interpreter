@@ -10,7 +10,12 @@
  * can be asserted in a test. Only presenting it needs a canvas.
  */
 import { PICTURE_ROW } from '../engine/layout.ts';
-import { createDriver, type DisplayDriver, type DisplayMode } from './drivers/index.ts';
+import {
+  createDriver,
+  type DisplayDriver,
+  type DisplayMode,
+  type DriverOptions,
+} from './drivers/index.ts';
 import { Frame } from './frame.ts';
 import type { Screens } from './screens.ts';
 
@@ -29,9 +34,18 @@ export class Renderer {
   view: ScreenView = 'visual';
 
   #driver: DisplayDriver;
+  #options: DriverOptions;
 
-  constructor(mode: DisplayMode = 'ega') {
-    this.#driver = createDriver(mode);
+  /**
+   * @param mode    which adapter to start on
+   * @param options what the drivers need from outside, which is one font
+   *
+   * The options are kept rather than only used, because a mode switched later
+   * builds a new driver and it needs them too.
+   */
+  constructor(mode: DisplayMode = 'ega', options: DriverOptions = {}) {
+    this.#options = options;
+    this.#driver = createDriver(mode, options);
   }
 
   /** The driver in use: its size and aspect are what the canvas follows. */
@@ -64,7 +78,7 @@ export class Renderer {
    */
   setMode(mode: DisplayMode): boolean {
     if (mode === this.#driver.mode) return false;
-    this.#driver = createDriver(mode);
+    this.#driver = createDriver(mode, this.#options);
     return true;
   }
 

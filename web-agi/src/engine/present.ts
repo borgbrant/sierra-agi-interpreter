@@ -94,7 +94,13 @@ export function buildFrame(machine: Machine, view: ScreenView = 'visual'): Frame
   // the input row means to be there -- the game's own multiple-choice
   // questions put their instructions exactly there -- so the line yields to it
   // rather than covering it up.
+  //
+  // A monochrome display has no row to offer: its picture reaches the bottom of
+  // the screen. There the command line is a box that opens when the player
+  // starts typing, and it is an interaction rather than a layer -- so it
+  // arrives with `machine.pending` below, and nothing is drawn here.
   if (
+    !machine.monochrome &&
     machine.inputAccepted &&
     machine.prompt.visible &&
     !machine.pending &&

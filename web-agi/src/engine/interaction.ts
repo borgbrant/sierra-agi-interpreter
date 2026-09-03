@@ -18,7 +18,16 @@
  * needing to know what kind of thing it is waiting for.
  */
 import type { Frame } from '../render/frame.ts';
-import { COLUMNS, layOutWindow, WINDOW_TEXT_WIDTH, type TextWindow } from '../render/text.ts';
+import {
+  COLUMNS,
+  DEFAULT_BACKGROUND_COLOUR,
+  DEFAULT_TEXT_COLOUR,
+  layOutWindow,
+  ROWS,
+  WINDOW_BORDER_COLOUR,
+  WINDOW_TEXT_WIDTH,
+  type TextWindow,
+} from '../render/text.ts';
 import type { Machine } from './machine.ts';
 import { VAR } from './state.ts';
 
@@ -39,6 +48,68 @@ export interface Key {
    */
   alt?: boolean;
 }
+
+/**
+ * A box with a title and a field to type into.
+ *
+ * The shape a mono display asks for anything in, and photographs of the real
+ * thing show it twice over -- once for the command line and once for the
+ * game's "How old are you?". Three lines, and the middle one is the point:
+ *
+ * ```text
+ *   +--------------------------------------+
+ *   |            ENTER COMMAND             |   the title, centred
+ *   |                                      |   a blank line
+ *   | [talk girl_                         ]|   the field, inverse video
+ *   +--------------------------------------+
+ * ```
+ *
+ * The field is a second layer over the window's own third line rather than
+ * part of it, because a window is one pair of colours throughout -- and on a
+ * two-colour display swapping ink and ground is the only way left to show that
+ * a field is a field. The blank line between is what keeps the two from
+ * reading as one paragraph.
+ *
+ * @param title  centred on the first line
+ * @param field  what has been typed, with its cursor
+ */
+function promptBox(frame: Frame, title: string, field: string): void {
+  const indent = Math.max(0, Math.floor((PROMPT_BOX_WIDTH - title.length) / 2));
+  const line = field.slice(0, PROMPT_BOX_WIDTH).padEnd(PROMPT_BOX_WIDTH);
+
+  const window: TextWindow = {
+    // Built rather than laid out. This is a box of a fixed shape and not a
+    // wrapped message, and `layOutWindow` sizes a window from its text -- a
+    // line of nothing but spaces wraps away to nothing, leaving a box no wider
+    // than its own title.
+    lines: [
+      `${' '.repeat(indent)}${title}`.padEnd(PROMPT_BOX_WIDTH),
+      ' '.repeat(PROMPT_BOX_WIDTH),
+      line,
+    ],
+    column: Math.floor((COLUMNS - PROMPT_BOX_WIDTH) / 2),
+    row: PROMPT_BOX_ROW,
+    foreground: DEFAULT_TEXT_COLOUR,
+    background: DEFAULT_BACKGROUND_COLOUR,
+    border: WINDOW_BORDER_COLOUR,
+  };
+
+  frame.window(window);
+  frame.text(line, window.column, window.row + 2, window.background, window.foreground);
+}
+
+/** How wide the box is, in cells. Nearly the screen, as the original's is. */
+const PROMPT_BOX_WIDTH = 36;
+
+/**
+ * The row the box's title sits on.
+ *
+ * Half way down AGI's 25-row grid, which is where the photograph puts it: the
+ * title on row 12 of Hercules' 29 and the field on 14. Centring in the grid
+ * rather than in the screen is what makes those two agree, because the grid is
+ * shorter than a mono screen -- 25 twelve-row cells is 300 of 348 pixels.
+ */
+const PROMPT_BOX_ROW = Math.floor(ROWS / 2);
 
 /** Something the game is waiting for. */
 export abstract class Interaction {
@@ -167,6 +238,17 @@ abstract class Question extends Interaction {
   protected abstract accepts(char: number): boolean;
 
   override draw(frame: Frame, machine: Machine): void {
+    // On a mono display the game's own questions take the same shape as its
+    // command line -- the prompt on one line and the answer in an inverse
+    // field below -- which is what photographs of the real thing show for
+    // "How old are you?". A script's own placement is ignored there: the box
+    // has a fixed shape and a fixed place, and it is a place the photographs
+    // show rather than one a script chose.
+    if (machine.monochrome) {
+      promptBox(frame, this.prompt.trim(), `${this.text}_`);
+      return;
+    }
+
     // Black on white, like every other message box, and deliberately not the
     // machine's text attribute: that colours text written into character cells,
     // and a game that left it on white-on-black would otherwise ask its
@@ -251,4 +333,96 @@ export function drawTextScreen(
   lines.forEach((line, index) => {
     frame.text(line.slice(0, COLUMNS), 0, topRow + index, foreground, background);
   });
+}
+
+/**
+ * The command line, on a display that puts it in a box.
+ *
+ * Photographs of the real thing show one: a box over the scene, with `ENTER
+ * COMMAND` centred in it and the line being typed beneath in inverse video,
+ * while the screen's bottom rows carry the game's own text instead.
+ *
+ * Not because there is nowhere else to put it -- that was the first explanation
+ * and it was wrong. Rows 22 to 24 exist on Hercules as on every adapter, and
+ * the game writes on them nineteen times. The original *chose* a box, and why
+ * is not recoverable from three screenshots; that it did is not in doubt.
+ *
+ * It is an interaction and not a layer of the frame, which is the whole
+ * difference between this and the command line on a colour display. That one
+ * sits on a row of its own and the world keeps moving while the player types.
+ * This one covers the scene, so the scene has to hold still: the box appears
+ * when the player starts typing, the cycle parks on it, and the game carries on
+ * when the line is handed over. A box over a moving picture that the player is
+ * also reading would be the worst of both.
+ *
+ * Three ways out, and two of them are the same key going backwards. Enter hands
+ * the line to the scripts. Escape abandons it. And backspacing away the last
+ * character closes the box too -- it opened because a key was pressed, so
+ * un-pressing that key should undo it rather than leave the player shut in.
+ *
+ * The line carries no `]`. That marker is what AGI keeps in string 0 and what
+ * this game writes there, and it belongs to the input *row*; the box announces
+ * itself with a title instead, and the photograph shows the field holding
+ * nothing but what was typed.
+ *
+ * The shape is {@link promptBox}, which the game's own questions share --
+ * because the photographs show them sharing it.
+ */
+export class CommandLine extends Interaction {
+  /** What the box calls itself. */
+  static readonly TITLE = 'ENTER COMMAND';
+
+  #text: string;
+  #cursorChar: string;
+  #maxLength: number;
+  #submitted = false;
+
+  /**
+   * @param first      the character that opened the box
+   * @param cursorChar the cursor to draw after the text, from `set.cursor.char`
+   * @param maxLength  how long a line may get, from the reserved variable
+   */
+  constructor(first: string, cursorChar: string, maxLength: number) {
+    super();
+    this.#text = first;
+    this.#cursorChar = cursorChar;
+    this.#maxLength = Math.max(1, maxLength);
+  }
+
+  /** What has been typed so far, without the cursor. */
+  get text(): string {
+    return this.#text;
+  }
+
+  override draw(frame: Frame): void {
+    promptBox(frame, CommandLine.TITLE, `${this.#text}${this.#cursorChar}`);
+  }
+
+  override key(_machine: Machine, key: Key): boolean {
+    if (key.name === 'Enter') {
+      this.#submitted = true;
+      return true;
+    }
+
+    if (key.name === 'Escape') return true;
+
+    if (key.name === 'Backspace') {
+      this.#text = this.#text.slice(0, -1);
+      // Emptied, the box has nothing left to be, so it goes.
+      return this.#text === '';
+    }
+
+    if (this.#text.length < this.#maxLength && key.char >= 0x20 && key.char <= 0x7e) {
+      this.#text += String.fromCharCode(key.char);
+    }
+    return false;
+  }
+
+  override finish(machine: Machine): void {
+    // The machine's own prompt is left empty either way: this box keeps its own
+    // text, so a line abandoned here does not turn up on the input row of a
+    // display the player switches to next.
+    machine.prompt.clear();
+    if (this.#submitted) machine.submitLine(this.#text);
+  }
 }

@@ -36,11 +36,35 @@ export const ROWS = 25;
  * blitter serves both.
  */
 export interface CellMetrics {
-  /** Pixel size of one cell. */
+  /** Pixel size of one cell: how far apart two characters sit. */
   width: number;
   height: number;
-  /** The rows of one character, high bit leftmost; `height` of them. */
+  /**
+   * The rows of one character, high bit leftmost.
+   *
+   * As many as the font has, which need not be as many as the cell holds:
+   * `HGC_FONT`'s glyphs are twelve rows in a fourteen-row cell, and the two
+   * left over are the leading.
+   */
   glyph(code: number): ArrayLike<number>;
+
+  /**
+   * How many bits wide a row of the glyph is.
+   *
+   * Omitted, eight, which is every font in the PC's ROM. `HGC_FONT`'s are
+   * sixteen: it is natively that wide, with two-pixel strokes drawn in, rather
+   * than an eight-wide font to be doubled.
+   */
+  glyphBits?: number;
+  /**
+   * Where column 0 starts, in pixels.
+   *
+   * Omitted, the grid starts at the left edge. Hercules puts its 40 columns
+   * across the 640 pixels the picture occupies rather than across all 720, so
+   * its text lines up with the scene instead of with the screen -- status line
+   * included, which is what the photographs show.
+   */
+  originX?: number;
 }
 
 /** The 8x8 IBM font in an 8x8 cell: what EGA and CGA draw. */
@@ -86,8 +110,14 @@ const BORDER_INSET = 2;
 /**
  * Draw one character at a cell.
  *
- * A glyph wider or narrower than the cell is scaled to it, which is how an
- * 8-pixel font fills an 18-pixel Hercules cell without a second blitter.
+ * One glyph bit per pixel whenever the font is as wide as the cell, which with
+ * the real fonts in hand is every case: the PC's ROM font is 8 wide in EGA's
+ * 8-pixel cell, and `HGC_FONT` is 16 wide in Hercules' 16-pixel cell. A
+ * narrower glyph is stretched to the cell, which is the fallback for a font
+ * file that is not there.
+ *
+ * Rows the font does not have are ground. That is the leading: `HGC_FONT`'s
+ * glyphs are twelve rows in a cell of fourteen.
  */
 export function drawChar(
   display: Display,
@@ -99,8 +129,10 @@ export function drawChar(
   cell: CellMetrics = IBM_CELL,
 ): void {
   const bitmap = cell.glyph(code);
-  const left = column * cell.width;
+  const left = (cell.originX ?? 0) + column * cell.width;
   const top = row * cell.height;
+  const glyphBits = cell.glyphBits ?? DEFAULT_GLYPH_BITS;
+  const highBit = 1 << (glyphBits - 1);
 
   for (let y = 0; y < cell.height; y++) {
     const screenY = top + y;
@@ -112,15 +144,15 @@ export function drawChar(
     for (let x = 0; x < cell.width; x++, at++) {
       const screenX = left + x;
       if (screenX < 0 || screenX >= display.width) continue;
-      // Which bit of the eight-wide glyph this column of the cell shows.
-      const bit = cell.width === GLYPH_BITS ? x : Math.floor((x * GLYPH_BITS) / cell.width);
-      display.pixels[at] = bits & (0x80 >> bit) ? foreground : background;
+
+      const bit = glyphBits === cell.width ? x : Math.floor((x * glyphBits) / cell.width);
+      display.pixels[at] = bits & (highBit >> bit) ? foreground : background;
     }
   }
 }
 
-/** How many bits wide a glyph row is; the PC's fonts are all byte-wide. */
-const GLYPH_BITS = 8;
+/** How many bits wide a glyph row is; the PC's ROM fonts are all byte-wide. */
+const DEFAULT_GLYPH_BITS = 8;
 
 /**
  * Draw a line of text from a cell, left to right.
@@ -154,7 +186,8 @@ export function clearRows(
 ): void {
   const top = Math.min(from, to) * cell.height;
   const height = (Math.abs(to - from) + 1) * cell.height;
-  display.fillRect(0, top, display.width, height, colour);
+  const left = cell.originX ?? 0;
+  display.fillRect(left, top, COLUMNS * cell.width, height, colour);
 }
 
 /**
@@ -296,7 +329,7 @@ export function drawWindow(
   // rather than staying at EGA's eight pixels.
   const padX = cell.width;
   const padY = cell.height;
-  const left = window.column * cell.width - padX;
+  const left = (cell.originX ?? 0) + window.column * cell.width - padX;
   const top = window.row * cell.height - padY;
   const width = textWidth * cell.width + padX * 2;
   const height = window.lines.length * cell.height + padY * 2;
@@ -406,23 +439,21 @@ export class TextLayer {
     }
   }
 
-  /** Empty a rectangle of cells, so the picture shows through again. */
-  erase(fromColumn: number, fromRow: number, toColumn: number, toRow: number): void {
-    const left = Math.max(0, Math.min(fromColumn, toColumn));
-    const right = Math.min(COLUMNS - 1, Math.max(fromColumn, toColumn));
-    const top = Math.max(0, Math.min(fromRow, toRow));
-    const bottom = Math.min(ROWS - 1, Math.max(fromRow, toRow));
-
-    for (let row = top; row <= bottom; row++) {
-      this.chars.fill(0, TextLayer.index(left, row), TextLayer.index(right, row) + 1);
-    }
-  }
-
-  /** Whether nothing has been written on a row. */
+  /**
+   * Whether a script has written anything a reader could see on a row.
+   *
+   * Blanks do not count, and that is the whole point of the method. Its one
+   * caller asks whether the command line may use the input row, and a row that
+   * a script has *painted* -- `clear.lines(22, 24, 0)`, which is how a game
+   * blacks the input area out -- carries spaces rather than a message. Treating
+   * those as writing would take the command line away for the rest of the game.
+   */
   rowIsEmpty(row: number): boolean {
     if (row < 0 || row >= ROWS) return true;
     const start = TextLayer.index(0, row);
-    return this.chars.subarray(start, start + COLUMNS).every((code) => code === 0);
+    return this.chars
+      .subarray(start, start + COLUMNS)
+      .every((code) => code === 0 || code === 0x20);
   }
 
   clear(): void {

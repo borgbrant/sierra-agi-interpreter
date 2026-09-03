@@ -2,13 +2,12 @@
  * The shell's own controls: the settings the *player* chooses, as opposed to
  * the ones the game's menus offer.
  *
- * Every control does something now, and one mode does half of what it will.
- * The graphics choice is two things at once: what the game is *drawn* in, and
- * what the game is *told* it is being drawn on. The second half is real for all
- * three modes -- a game told it is on a mono screen lays its opening out for
- * one, and a game told it is on CGA is offered a graphics-mode toggle. The
- * first is real for EGA and CGA; Hercules draws in EGA's colours until M13, and
- * says so rather than implying more than it does.
+ * Every control does everything it says. The graphics choice is two things at
+ * once: what the game is *drawn* in, and what the game is *told* it is being
+ * drawn on. Both halves are real for all three modes -- a game told it is on a
+ * mono screen lays its opening out for one, and one told it is on CGA is
+ * offered a graphics-mode toggle -- and the three draw in sixteen colours, in
+ * four, and at 720x348 in two.
  *
  * Three modes rather than the original's four. A PCjr would be the one entry
  * that could never look different from another, and its only script-visible
@@ -39,7 +38,7 @@ export const GRAPHICS_MODES: { value: GraphicsMode; label: string }[] = [
 const GRAPHICS_NOTE: Record<GraphicsMode, string> = {
   ega: 'sixteen colours, and the game laid out for a colour screen',
   cga: 'four colours, and the sixteen reached by dithering pairs of pixels',
-  hercules: 'the game laid out for a mono screen, still drawn in EGA colours until M13',
+  hercules: '720x348 in two colours, and the command line in a box over the scene',
 };
 
 export const SOUND_CHIPS: { value: SoundChip; label: string }[] = [

@@ -3,7 +3,7 @@
 Companion to [spec.md](spec.md). The spec says *what* to build; this says in what
 order, in which files, and how each step is proven to work.
 
-> **M0-M12 are done and shipped. M13 is specified and not started.** The
+> **M0-M13 are done and shipped. M14 is specified and not started.** The
 > milestones are kept as they were written, for the reasoning behind the
 > sequencing and for the format measurements in the next section. They are not a
 > description of the code as built: several modules ended up named or split
@@ -25,7 +25,8 @@ M9  The sound chip switch     complete
 M10 The display driver seam   complete
 M11 What the scripts see      complete
 M12 CGA                       complete
-M13 Hercules                  not started
+M13 Hercules                  complete
+M14 The shell the player sees not started
 ```
 
 ## Grounding: what was verified before planning
@@ -1243,32 +1244,416 @@ defence a mode nobody can check against real hardware has.
 
 ---
 
-## M13 — Hercules — not started
+## M13 — Hercules — complete
 
 The mode that moves everything at once, and the reason the seam of M10 carries
 size and font: 720x348, two colours, an 8x12 font of its own, and its own object
 drawing in `HGC_OBJS.OVL`. Its layout arrived in M11, which is what makes this
 milestone only about pixels.
 
-Two things carry over from M12. The dither method is the same and the arithmetic
-is harsher: two colours give **three** blends over a pair of pixels, for sixteen
-colours, so this mode has more room to spare vertically than horizontally --
-720x348 against a 160x168 picture is four and a half pixels wide by two tall,
-which is a 2x2 or 2x4 cell rather than a pair. And the metric lesson holds: a
-boundary count will happily hide an object, so the mapping is judged by
-rendering the game's pictures and looking at them.
+Two things carried over from M12. The dither method, with harsher arithmetic --
+720x348 against a 160x168 picture is four pixels wide by two tall, and two
+colours over eight pixels is nine densities for sixteen colours. And the metric
+lesson: a count will happily hide an object, so the mapping was judged by
+rendering the game's pictures and looking at them. That is what caused the first
+mapping here to be thrown away.
 
 ```text
 src/render/drivers/hercules.ts   two colours, 720x348, its own cell
-src/render/font.ts               the Hercules font beside the IBM one
+src/render/text.ts               CellMetrics learns about letter spacing
+src/engine/present.ts            the command line becomes a box on a mono screen
+src/shell/canvas.ts              a 720-wide buffer can reach a whole multiple
 ```
 
-The font is the part with a fact attached: 3072 bytes, 256 glyphs of 12 bytes.
-The palette has none -- two colours and a dither, derived and judged by eye.
+No new font, and that is the one thing this milestone could not do. `HGC_FONT`
+is 3072 bytes -- 256 glyphs of twelve rows -- and it is an *interpreter* file,
+so it is not in a repository that ships only the game's resources. The shapes
+the original drew are not recoverable at any price. What this draws is the
+engine's own 8x8 IBM font in Hercules' cell.
+
+### A photograph changed how this milestone could be done
+
+The plan said nobody here could compare the result against a Hercules card. That
+turned out to be wrong: a screenshot of the real thing arrived, and it moved two
+things from *derived and judged by eye* to *derived and checked*.
+
+The first is the geometry, which is arithmetic once two facts are in hand --
+Hercules is 720x348, and `HGC_FONT`'s 3072 bytes over 256 glyphs is a twelve-row
+cell:
+
+```text
+the picture at 4x wide, 2x tall     640 x 336
+unlit either side                   (720 - 640) / 2 = 40 pixels
+the grid across the picture         40 columns of 16, not of 18
+AGI's rows 1-24 are the picture     336 over 24 rows is a 14-row cell
+```
+
+The photographs settle all four, and two of them only after being read twice.
+The picture is 640 of 720 wide -- 88.9% -- with unlit margins either side. It
+reaches the **bottom** of the screen, with no dead band under it. And the status
+bar is exactly as wide as the scene, with the game's bottom band starting at the
+scene's left edge rather than the screen's -- so **the grid goes across the
+picture's 640 pixels, not across all 720**, which makes the cell 16 wide rather
+than 18 and lines the text up with the game instead of with the screen.
+
+The row height falls out of that. If AGI's rows 1 to 24 are the picture's 336
+rows, each row is 14 -- and row 24 then ends at the bottom of the screen, so the
+three rows AGI keeps for its prompt are the screen's last three. That is where
+the photographs put the game's bottom band: flush with the bottom edge, not
+floating a few rows above it. Twenty-five 14-row cells is 350, two past a
+348-row card, so the last two pixels of row 24 fall off.
+
+Getting the cell wrong put the band two rows up and its text a cell and a half
+left of the scene. Neither is a subtle error and neither was noticed from a
+render; both were noticed by holding the render next to the photograph.
+
+### The letter spacing was the font's all along
+
+The photographs' text is conspicuously spaced, so the glyph was drawn at 8 bits
+in the 16-pixel cell -- half-filling it and leaving eight pixels of air. Wrong:
+the letters came out thin and narrow where the photographs show them thick and
+wide, because a one-pixel stroke doubles to two and a half-width glyph does not.
+
+The glyph fills the cell, and **the spacing comes from the font**. Only two of
+the engine's 95 glyphs use their rightmost column -- `*` and the full-width `_`
+-- so every other character carries a blank column of its own, which doubles to
+two pixels of ground beside it. That is a property of every PC font in this
+family rather than an accident of this one, which is why it is worth naming: a
+`glyphWidth` field was added to the cell to hold the gap and then removed again,
+because the font had been doing the job all along.
+
+A `glyphHeight` field went the same way, and its measurement is the more useful
+one. The glyph was drawn at twelve rows of the cell's fourteen, on the reasoning
+that twelve is `HGC_FONT`'s height and the rest is leading -- and the strokes
+came out uneven, which is most of what made the text look smeared:
+
+```text
+8 font rows into 12   drawn 2,1,2,1,2,1,2,1   four strokes thinned
+8 font rows into 14   drawn 2,2,2,1,2,2,2,1   two, and one of them is the
+                                              font's blank bottom row
+8 font rows into 16   drawn 2,2,2,2,2,2,2,2   none, and it does not fit
+```
+
+So the glyph fills all fourteen. **A cell is filled rather than part-filled
+because of the arithmetic of repeating rows, not because of leading** -- which
+is worth knowing before reaching for a leading field again.
+
+### The bottom band, and two defects it uncovered
+
+The game's bottom band -- "Please answer a, b, c, or d:", the speed indicator,
+its captions -- came out printed *on the scene* rather than on a black bar. The
+first diagnosis was that the geometry must be wrong: the picture could not
+really reach those rows, or the band would have nowhere clear to sit. So the
+picture was moved to AGI's rows 1 to 21, which fixed the symptom and left a dead
+unlit band along the bottom that the photographs plainly do not have. Wrong
+answer, and the photographs said so.
+
+The right one is in the command, and a measurement of the game finds it. Every
+one of its 34 `clear.lines` calls is on rows 21 to 24 and every one clears to
+**black**:
+
+```text
+clear.lines  rows 21-21, 22-22, 22-24, 23-23, 23-24, 24-24   all to colour 0
+             and not one call anywhere on rows 1 to 20
+display      rows 22, 23 and 24, nineteen times between them
+```
+
+The two calls on **row 21** are the ones that decide it. Row 21 is the picture's
+last row on every adapter, and both calls are the colour branch of a mono test:
+on a colour screen the game clears row 21 and prints its caption there, on a
+mono screen it uses row 24 instead. Clearing row 21 only makes sense if the
+clear *paints* -- the game wants a black bar across the bottom of the scene to
+put its caption on.
+
+And AGI paints. It has one framebuffer and no text plane; `clear.lines` writes
+the colour over whatever was there. This engine emptied the cells instead, so
+that a caption taken off the picture would reveal the scene -- and for seven
+milestones the two were **indistinguishable**, because on a 320x200 screen
+nothing is behind rows 22 to 24 and transparent and black look the same.
+Hercules is where they came apart, and the defect it exposed was on EGA too:
+those two row-21 captions have been floating on the scene there all along.
+
+### The command line is a box because it has nowhere else to go
+
+The picture reaches the bottom of the screen, so the three rows AGI keeps for
+its prompt have scene behind them. The photographs show what the original did
+instead: `ENTER COMMAND` centred over the scene with the line being typed
+beneath in inverse video.
+
+The game's own band shares those rows and gets there by painting them black
+first. The interpreter's command line does not paint; it draws a box.
+
+### What making the command paint then exposed
+
+The round-trip test of M8 failed within the minute, and it was right to: **the
+snapshot did not carry the text plane**. It had never needed to, for exactly the
+reason above -- a cleared band and a plane nothing had been written on were the
+same thing, so a restore that dropped the plane dropped nothing anyone could
+see. With clears painting, a saved game and its restored twin diverge on the
+first cleared row and never converge again.
+
+So the plane is in the snapshot now, sparsely: a list of `[cell, character, ink,
+ground]` for the cells that hold something, which is a fraction of the 1000-cell
+plane in any real game. Optional on the way in, like the layout of M11, and for
+the same reason -- a save written before it existed came from an engine whose
+plane could not have survived a restore anyway.
+
+One ordering defect on the way, and it is the same kind M8 found twice: the
+restore wrote the plane back and then the "nothing of the old game is left on
+screen" step cleared it again. The clear belongs to the game being replaced, so
+it has to come first. The round-trip test found that one too.
+
+### And the band would not go away
+
+Painting it revealed the second half of the same problem: nothing ever unpainted
+it. A band the game had put up survived every room the player walked into, which
+no photograph shows -- they show it only where there is text on it.
+
+AGI takes it away by not having a text plane at all. `show.pic` copies the
+picture into the screen, over whatever was there: captions, band and all. So
+`show.pic` clears the plane here, and that this is safe was checked rather than
+assumed -- **no script in the game writes with `display` and then shows the
+picture**, so nothing it meant to keep is thrown away.
+
+That is the third time in this milestone that having one framebuffer, where this
+engine has a picture and a plane over it, turned out to be the thing that
+mattered. It is worth stating as a rule for whatever comes next: every command
+that writes to AGI's screen writes to *one* buffer, and every place this engine
+keeps two is a place where the difference can hide.
+
+That box is the *interpreter's* and not the game's, and this was checked rather
+than assumed -- no message in any of the 46 LOGIC resources contains the words
+"enter command", so no script could be printing it.
+
+Three photographs pin its shape down to the cell, and one of them was the
+surprise: **the game's own questions use the same box.** `get.num`'s "How old
+are you?" is drawn exactly like the command line -- the prompt on one line, a
+blank line, then the answer in an inverse field -- while a plain message window
+next to it is still just text in a box. So the shape is a function, shared by
+both, and a script's own placement is ignored on a mono display: the box has a
+fixed place, and the row a script asked for was chosen for a screen of 25 rows.
+
+```text
+row 12    the title or the prompt, centred
+row 13    blank, which is what keeps the two from reading as one paragraph
+row 14    the field, inverse video, the whole inner width
+```
+
+Row 12 is not a measurement dressed up as one: it is `floor(ROWS / 2)`, half way
+down AGI's own 25-row grid. That it lands where the photographs put it is the
+useful part -- centring in the grid rather than in the screen is what makes the
+two agree, because the grid is shorter than a mono screen.
+
+And the field carries no `]`. That marker is what AGI keeps in string 0 and what
+this game writes there, and it belongs to the input *row*; the box announces
+itself with a title instead, and all three photographs show the field holding
+nothing but what was typed.
+
+Because the box covers the scene, the scene has to hold still. So it is an
+`Interaction` and not a layer of the frame: it opens on the keystroke that would
+have gone onto an input row, the cycle parks on it, and the game carries on when
+the line is handed over. Escape abandons it, and so does backspacing away the
+last character -- it opened because a key was pressed, so un-pressing that key
+should undo it rather than leave the player shut in.
+
+Where it lives is the interesting part. M10's rule is that nothing above the
+display seam may ask which driver is running, and this is engine furniture that
+has to differ by adapter. The resolution is that it does not ask: it reads the
+**monitor variable**, which is the same fact the scripts read and the same one
+M11 wired up. So `present.ts` draws the box whenever the display is monochrome,
+and does not know that the only mono display is Hercules. A consequence falls
+out for free -- the game's own Ctrl-R, `toggle.monitor`, moves the command line
+into a box and back, because the engine's furniture now follows the same fact
+the game's own layout does.
+
+### The dither, in three attempts
+
+Four pixels wide by two tall is eight pixels, and two colours give **nine**
+densities for sixteen colours -- worse than the count suggests, because six of
+AGI's colours sit between luminance 51 and 104 and crowd onto two of the nine.
+
+Three mappings were built. Each one was rendered as a swatch of all sixteen side
+by side and as real scenes, and each was thrown out by looking at it:
+
+```text
+a pattern per colour,     nine densities. Green, brown, dark grey and light
+  8 pixels                blue came out as one grey, told apart only by which
+                          pixel of eight was lit, which the eye does not read
+one shared ordered        sixty-four accurate greys, all sixteen distinct --
+  matrix, 8x8             and one weave for the whole screen, because there
+                          the texture comes from the density. Every surface at
+                          the same brightness looked like the same material
+a pattern per colour,     thirty-three densities *and* a weave per colour.
+  32 pixels               What ships
+```
+
+The third is the one the photographs argue for, and the arithmetic that makes it
+possible is that the pattern repeats over a **block of two AGI pixels each way**
+rather than over one. Eight pixels across by four down is 32, which is 33
+densities -- and every pixel still shows only its own colour's value, so nothing
+is blended with a neighbour. A dither that averaged across two AGI pixels would
+have bought the levels by giving up the boundary between two colours, and on a
+two-colour display that boundary is the thing there is least of to spare.
+
+Density is luminance over 32, pushed up by one where two colours would share a
+level. Three needed it, all within four units of luminance of each other, and
+pushing rather than rounding keeps the order so a brighter colour is never drawn
+darker. All sixteen end up distinct, which is what M12 taught this project to
+want.
+
+Texture is one of three ways of filling to that density, handed out in turn down
+the order of luminance so that any two colours at neighbouring levels fill
+differently:
+
+```text
+dispersed   an even sprinkle          two 4x4 ordered matrices interleaved
+diagonal    hatching at 45 degrees    whole diagonals light together
+clustered   a coarse dot grid         whole 2x2 blocks light together
+```
+
+The third of those was **vertical lines** first -- whole columns lighting
+together -- and it was rendered and thrown out within the third attempt. At a
+half it is a one-pixel picket fence across the whole surface, which reads as a
+curtain rather than as a material; the house's clapboard wall came out as a
+wall of stripes. Clustering the same count into 2x2 blocks gives the dot grid
+the photographs actually show. That is four mappings looked at, for one that
+ships.
+
+### The phosphor
+
+Amber, `#FFB000`. It belonged to the monitor rather than to the card and green
+was equally common, but every photograph of this game on a Hercules is amber. It
+was white until the photographs arrived, which is one row gone from the list of
+things this mode does not get right.
+
+### What M12's lesson turned into
+
+M12 ended with a rule: a colour identical to its background is an object that
+has vanished, and that is worse than a colour merely being wrong. Two colours is
+where that rule pays for itself. **All sixteen levels are distinct**, so nothing
+in any picture can disappear into anything else -- and there is a test that
+counts lit pixels over an eight-by-eight block for each of the sixteen and
+asserts sixteen different answers.
+
+That is a stronger guarantee than CGA's, which loses six distinctions outright.
+The mode with the fewest colours ends up losing the fewest objects, because
+sixty-four levels of one colour separate better than ten blends of four.
+
+### Two things the seam had not carried
+
+M10 designed the display interface against this mode, and it held -- with one
+field missing. `CellMetrics` carried the cell's size and the font, and not the
+**gap between them**: Hercules' text is letter-spaced, its cell is 18 pixels and
+its glyph 16, and an interface that could only stretch a glyph to fill its cell
+had nowhere to put that. One optional field, `glyphWidth`, and the default is
+the old behaviour.
+
+The other is in the shell rather than the seam. The canvas presents the largest
+whole multiple of a driver's buffer that fits, and with the cap at 1280 a
+720-wide buffer could only reach 1x -- Hercules would have been shown at half
+the size of every other mode on the same screen. The cap is 1440 now, which
+lets it reach 2x and changes nothing for the others: 1440 over 320 is 4.5, and
+the whole multiple is still 4.
+
+### What the tests found
+
+Nothing in the engine. The 338 before it stayed green, EGA and CGA included.
+
+The eighteen added split in a way the earlier graphics milestones could not:
+several of them assert *arithmetic that a photograph corroborates*, which is a
+kind of test M12 had no access to.
+
+```text
+the status row and the picture are the whole screen, exactly
+the picture is 640 of 720 pixels wide, centred
+the character grid is 40 columns of 18 pixels, and cannot reach the bottom
+the glyph is narrower than its cell, which is what spaces the letters
+all sixteen colours get a level of their own
+a brighter colour is never drawn darker
+no two colours fill the same way at neighbouring levels
+a region of one colour comes out at the grey it asked for
+no two colours look the same over a region
+the box only appears once the player starts typing
+the box is a title, a blank line and an inverse field, and carries no `]`
+the game's own questions take the same shape on a mono display
+Enter hands the line over and lets the game run again
+Escape abandons the line, and so does backspacing it away
+toggle.monitor moves the command line, and moves it back
+Hercules is the driver for the mode, and EGA is untouched
+```
+
+Two of those carry the dither's weight. *A region of one colour comes out at the
+grey it asked for* works because each of the three fill orders is a permutation
+of 0 to 31, so a level means a count of lit pixels and nothing else -- a dither
+either is an accurate grey or it is not. And *no two colours look the same over a
+region* compares the whole 32-pixel pattern as drawn rather than only its count,
+because two colours at the same level would be a defect while two with the same
+level *and* weave would be an object that has disappeared.
+
+Three more hold the input box to what the photographs show, and one holds the
+colour displays to what they did before: *on a colour display a question is one
+line, prompt and answer together*. The box is a mono answer to a mono problem
+and must not leak into the mode that is known to be right.
+
+### This is a simulation, and here is where it is not the original
+
+Hercules is the least faithful of the three modes, and every one of the reasons
+is a file this repository does not have. The graphics overlay, the object
+overlay and the font are *interpreter* files; the repository ships only the
+game's resources, deliberately (see the spec's note on bundling). So the mode is
+derived from arithmetic, a photograph and judgement, and these are the places
+that shows. Each is closeable, and the last column says with what.
+
+```text
+what differs                            why                    what would close it
+the letter shapes         HGC_FONT is not bundled: 3072    the font file. Reading
+  -- and this one is      bytes of interpreter data, not   95 glyph bitmaps off
+  the most visible of     a game resource. What is drawn   compressed video
+  the four                is the engine's own 8x8 CGA and  frames is not a
+                          EGA font stretched into the      substitute, and
+                          cell, and it reads as exactly    drawing one from
+                          that                             scratch would be an
+                                                           invention, not a
+                                                           reproduction
+which weave each          each of the sixteen has a        HGC_GRAF.OVL. Which
+surface carries           weave of its own, as the         colour got which weave
+                          photographs show -- but the      is not inferable from
+                          three families and who gets      three screenshots
+                          which are derived, not read
+how sprites are drawn     the original shipped             HGC_OBJS.OVL. What it
+                          HGC_OBJS.OVL beside              did differently is not
+                          IBM_OBJS.OVL, so cels were       inferable from the
+                          drawn differently here; this     resources
+                          dithers them like the picture
+the last two pixels        25 rows of 14 is 350 and the    nothing in the
+                           card is 348, so the bottom of   resource files decides
+                           row 24 falls off the screen     whether the original
+                                                           lost them too
+```
+
+The list is shorter than it was. Photographs of the real thing settled the
+phosphor, the shape and the place of the prompt box, that surfaces carry a weave
+of their own, and -- twice over -- the picture's height. What is left divides
+cleanly: one row wants a font file, one wants the graphics overlay, one wants
+the object overlay, and the last wants a fact that may not be recorded
+anywhere.
+
+None of the four makes the game unplayable, and the guarantee that matters is
+intact: all sixteen colours stay distinguishable, so nothing in any picture
+disappears into anything else. What is missing is period detail, and it is
+missing because the files that hold it are not here. **It can be improved
+further** -- each row above says with what -- and none of it needs the engine
+rearranged to do it: a better table is a better table, behind the same seam.
 
 **Done when:** Hercules draws the game at its own size on a canvas that follows
 it, in its own font, and switching to it and back repaints without reloading the
 room.
+
+Two of those three stood. The canvas follows the driver and a mode can be
+switched mid-room -- M10 built both, and a driver that keeps nothing between
+frames is what makes the second free. The font could not be done at all, for the
+reason given above, and the milestone says so rather than claiming an 8x8 font
+in a twelve-row cell is Hercules'.
 
 ### The risk these four carry
 
@@ -1281,10 +1666,118 @@ check cannot quietly disturb the one mode that is known to be right.
 
 M12 used both, and the first of them earned its place: looking at the pictures
 is what caught two mappings that a metric preferred and that each hid a whole
-object. A third mitigation came out of that and is worth stating for M13 --
-**record what the mapping costs, measured, next to the mapping**, and have a
-test recompute it. It does not say the mapping is right. It makes changing it a
-decision with a number attached rather than a matter of taste.
+object. A third mitigation came out of that -- **record what the mapping costs,
+measured, next to the mapping**, and have a test recompute it. It does not say
+the mapping is right. It makes changing it a decision with a number attached
+rather than a matter of taste.
+
+M13 got a fourth the plan did not expect to be available: a photograph of the
+real thing. It moved the geometry from derived to confirmed, and it settled the
+command-line question outright. It did not settle the dither -- what it shows
+there is a per-surface weave finer than a four-by-two cell can carry -- and that
+is where the swatch-and-look mitigation did the work instead.
+
+---
+
+## M14 — The shell the player sees — not started
+
+Thirteen milestones went into the engine and none into the page around it. It
+shows: the shell is a development instrument with a game in the middle of it,
+and everything it says out loud is addressed to whoever is building the
+interpreter rather than to whoever is playing the game.
+
+This is the first milestone with no format to measure and no hardware to
+imitate. What it has instead is a list of things that are demonstrably wrong.
+
+### Grounding: what the page does today
+
+```text
+the status line under the canvas    twice a second, and reads
+                                    "room 11 (entered 2x), cycle 1481, ego
+                                    50,120 pri 8 - 3 commands not yet
+                                    implemented"
+the log below it, on load           resource counts, then eight lines of key
+                                    hints that mix the game's keys with the
+                                    engine's
+the controls row                    Graphics, Sound chip, Sound on/off, Export
+                                    saves, Import saves -- five controls in one
+                                    undifferentiated row, two of which are file
+                                    operations and three of which are settings
+F5 / F7                             advertised as the game's own Save and
+                                    Restore, which they are
+F7                                  *also* bound by the shell to the priority
+                                    screen, which it also is
+F8 / F9                             the state dump and the disassembler, always
+                                    live
+```
+
+**F7 is the defect worth naming.** `shell/debug.ts` listens on the window for
+F7 and toggles the priority screen; `input/keyboard.ts` routes the same key to
+the game, which has bound it to Restore. Neither stops the other, so one press
+does both: the picture switches to the priority screen *and* the restore dialog
+opens over it. The log advertises both bindings, two lines apart.
+
+That is not a milestone-sized problem on its own. It is the symptom worth
+starting from, because the cause is that the shell's keys and the game's keys
+were never separated, and the same is true of the shell's *words*.
+
+### The line to draw
+
+Not "hide the debug tools" -- an earlier open question settled that they ship,
+because the whole of `shell/debug.ts` plus the disassembler is about 1 KB
+gzipped and a second code path would cost more than it saves. The line is
+between **what a player needs to know** and **what a developer needs to see**,
+and today they are the same surface at the same time.
+
+```text
+the player needs      which keys are the game's, that sound needs a keypress
+                      first, what the display and sound switches do, and how
+                      to save a game to a file
+the developer needs   where the game is, what it reached that is not built,
+                      the priority screen, the state, the disassembly
+```
+
+Both stay. The developer's moves behind one gesture, and off the keys the game
+has taken.
+
+### Files
+
+```text
+src/shell/shell.ts      the page: the two surfaces separated
+src/shell/controls.ts   settings grouped apart from actions
+src/shell/debug.ts      one gesture in, and keys the game has not bound
+src/main.ts             what the page says on load, and what it says twice a
+                        second
+```
+
+### Order of work
+
+1. **The keys.** The shell's own keys move off anything the game has bound, and
+   the collision is settled by asking the game rather than by choosing again:
+   `machine.keyBindings` knows every key the scripts claimed, so the shell can
+   refuse to take one. That is a rule rather than a new list of keys, and it
+   holds for the next game too.
+2. **The status line stops being telemetry.** One line that says what the
+   *shell* just did -- a setting changed, sound switched on, a game saved -- and
+   the engine's readout only while the developer surface is open.
+3. **The controls, grouped.** Settings apart from actions, and each control
+   still saying what choosing it does rather than only what it is called.
+4. **What the page says on load.** The game's own keys, and the two facts a
+   player cannot guess: sound starts off and needs a keypress, and whether this
+   browser will let the game save. The resource summary moves to the developer
+   surface, where it was always addressed.
+
+### What this is not
+
+No touch or mobile controls: the spec puts those outside v1 and nothing here
+changes that. No theming, no settings the game does not have, and no second
+build. The page stays one page.
+
+**Done when:** a player who has never opened the repository can start the game,
+tell which keys belong to it, change the display and the sound, save to a file
+and load it back, and never see a cycle count or a resource table -- while every
+one of the developer surfaces is still one gesture away, and no shell key
+shadows a key the game has bound.
 
 ---
 

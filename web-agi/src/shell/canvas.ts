@@ -14,8 +14,16 @@
  */
 import type { DisplayDriver } from '../render/drivers/driver.ts';
 
-/** The widest the canvas is allowed to grow, in CSS pixels. */
-const MAX_WIDTH = 1280;
+/**
+ * The widest the canvas is allowed to grow, in CSS pixels.
+ *
+ * 1440 rather than 1280 for one reason: Hercules' buffer is 720 wide, and with
+ * a 1280 cap the largest whole multiple that fits is 1, so it would be
+ * presented at half the size of every other mode on the same screen. 1440 lets
+ * it reach 2x. EGA and CGA are unaffected -- 1440 / 320 is 4.5, and the whole
+ * multiple is still 4.
+ */
+const MAX_WIDTH = 1440;
 
 /** Room left for the page around the canvas. */
 const MARGIN = 32;

@@ -5,20 +5,36 @@
  * Hercules (M13) is a line here rather than a search for everywhere the choice
  * is read.
  *
- * Two of the three are real. Hercules still draws EGA's pixels while reporting
- * the mode it was asked for, which is what lets the shell say "chosen, but not
- * drawn yet" truthfully instead of quietly ignoring the choice.
+ * All three are real, and no two are alike: sixteen colours at 320x200, four
+ * at the same size, and two at 720x348 in a cell of its own. `JR_GRAF.OVL` is
+ * the fourth the original shipped and has no entry here; `engine/hardware.ts`
+ * says why.
  */
+import type { HgcFont } from '../hgcfont.ts';
 import { CgaDriver } from './cga.ts';
 import type { DisplayDriver, DisplayMode } from './driver.ts';
 import { EgaDriver } from './ega.ts';
+import { HerculesDriver } from './hercules.ts';
 
 export type { DisplayDriver, DisplayMode } from './driver.ts';
 export { CgaDriver } from './cga.ts';
 export { EgaDriver } from './ega.ts';
+export { HerculesDriver } from './hercules.ts';
+
+/**
+ * What a driver needs beyond its mode.
+ *
+ * One entry so far, and it is the only thing any driver needs from outside:
+ * Hercules brought its own font, and a font is a file rather than a constant.
+ * Absent, it draws with the engine's own and looks like it.
+ */
+export interface DriverOptions {
+  /** `HGC_FONT`, decoded, when the game came with it. */
+  herculesFont?: HgcFont | undefined;
+}
 
 /** Build the driver for a mode. */
-export function createDriver(mode: DisplayMode): DisplayDriver {
+export function createDriver(mode: DisplayMode, options: DriverOptions = {}): DisplayDriver {
   switch (mode) {
     case 'cga':
       return new CgaDriver();
@@ -26,8 +42,7 @@ export function createDriver(mode: DisplayMode): DisplayDriver {
     case 'ega':
       return new EgaDriver(mode);
 
-    // M13. Reports Hercules and draws EGA, which the shell tells the player.
     case 'hercules':
-      return new EgaDriver(mode);
+      return new HerculesDriver(options.herculesFont);
   }
 }

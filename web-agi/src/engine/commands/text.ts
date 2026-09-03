@@ -95,18 +95,24 @@ export const TEXT: Record<string, Handler> = {
       m.textBackground,
     ),
 
-  // Clearing to the background colour empties the cells instead of painting
-  // them, so a caption taken off the picture reveals the scene rather than
-  // leaving a coloured hole in it.
-  'clear.lines': (m, [from, to, colour]) => {
-    if (colour === m.textBackground) m.textLayer.erase(0, from!, 39, to!);
-    else m.textLayer.fillRows(from!, to!, colour!);
-  },
+  // Painting, not emptying. AGI has one framebuffer and no text plane, so
+  // `clear.lines(22, 24, 0)` puts black into those rows over whatever was
+  // there -- and this game asks for that 34 times, always on rows 21 to 24 and
+  // always to black. Two of those calls are on row 21, which is the picture's
+  // last row: the colour branch of a mono test paints a black bar across the
+  // bottom of the scene and prints its caption on it, which only works if the
+  // clear paints.
+  //
+  // It emptied the cells until M13, so that a caption taken off the picture
+  // revealed the scene, and for seven milestones the two were
+  // indistinguishable: on a 320x200 screen nothing is behind rows 22 to 24, so
+  // transparent and black look the same. Hercules is where they came apart --
+  // its picture reaches those rows, and emptying them put the game's bottom
+  // band on the scene instead of on a bar.
+  'clear.lines': (m, [from, to, colour]) => m.textLayer.fillRows(from!, to!, colour!),
 
-  'clear.text.rect': (m, [row1, column1, row2, column2, colour]) => {
-    if (colour === m.textBackground) m.textLayer.erase(column1!, row1!, column2!, row2!);
-    else m.textLayer.fillCells(column1!, row1!, column2!, row2!, colour!);
-  },
+  'clear.text.rect': (m, [row1, column1, row2, column2, colour]) =>
+    m.textLayer.fillCells(column1!, row1!, column2!, row2!, colour!),
 
   'set.text.attribute': (m, [foreground, background]) => {
     m.textForeground = foreground!;

@@ -141,6 +141,27 @@ export interface Snapshot {
   cursorChar: string;
 
   /**
+   * Every cell a script has written, as `[cell, character, ink, ground]`.
+   *
+   * Sparse, because the plane is 1000 cells and almost all of them are empty
+   * in any real game -- a list of what was written is a fraction of the size of
+   * the plane and says exactly the same thing.
+   *
+   * It was not here until M13, and its absence was invisible for a reason
+   * worth recording: `clear.lines` used to *empty* cells rather than paint
+   * them, so a game that had blacked out its bottom band looked identical to
+   * one that had never written there, and a restore that dropped the plane
+   * dropped nothing. Making the command paint -- which is what AGI does -- made
+   * the gap visible, and the round-trip test found it the same day.
+   *
+   * Optional on the way in, like {@link layout}: a save written before this
+   * existed came from an engine whose plane could not survive a restore
+   * anyway, so reading its absence as "nothing written" is what that save
+   * meant.
+   */
+  text?: [number, number, number, number][];
+
+  /**
    * Where the game has put its status line, input line and print floor.
    *
    * Optional, and not because it might be missing from a save this engine
@@ -200,6 +221,7 @@ export function captureSnapshot(machine: Machine): Snapshot {
     lastLine: machine.lastLine,
     cursorChar: machine.prompt.cursorChar,
     layout: { ...machine.layout },
+    text: writtenCells(machine),
   };
 }
 
@@ -280,8 +302,20 @@ export function applySnapshot(machine: Machine, snapshot: Snapshot): void {
   machine.savedAreas.length = 0;
   machine.pictureShown = true;
 
-  // Nothing of the old game is left on screen or waiting for a key.
+  // Nothing of the old game is left on screen or waiting for a key. The text
+  // plane is emptied here and then written back from the snapshot, and the
+  // order is the point: this clear belongs to the game being replaced, and
+  // doing it after the restore is a defect the round-trip test found once
+  // already.
   machine.textLayer.clear();
+  machine.textLayer.foreground.fill(0);
+  machine.textLayer.background.fill(0);
+  for (const [cell, code, ink, ground] of snapshot.text ?? []) {
+    machine.textLayer.chars[cell] = code;
+    machine.textLayer.foreground[cell] = ink;
+    machine.textLayer.background[cell] = ground;
+  }
+
   machine.window = null;
   machine.pending = null;
   machine.prompt.clear();
@@ -424,4 +458,16 @@ function restoreObject(machine: Machine, saved: SavedObject): void {
   object.onLand = saved.onLand;
   object.repositioned = saved.repositioned;
   object.didNotMove = saved.didNotMove;
+}
+
+/** Every written cell of the text plane, as a sparse list. */
+function writtenCells(machine: Machine): [number, number, number, number][] {
+  const cells: [number, number, number, number][] = [];
+  const { chars, foreground, background } = machine.textLayer;
+
+  for (let cell = 0; cell < chars.length; cell++) {
+    if (chars[cell] === 0) continue;
+    cells.push([cell, chars[cell]!, foreground[cell]!, background[cell]!]);
+  }
+  return cells;
 }
