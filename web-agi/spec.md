@@ -21,7 +21,8 @@ These were settled before writing this spec and the design assumes them:
 ```text
 stack        TypeScript + Vite, no UI framework
 game data    bundled with the app at build time
-v1 scope     playable core; no sound, no save/restore
+v1 scope     playable core; no sound, no save/restore   (M0-M6, shipped)
+v2 scope     sound (M7), then save and restore (M8)
 code sharing npm workspaces, web-agi imports agi-extract
 ```
 
@@ -60,9 +61,7 @@ implementation of one small interface rather than a rewrite.
 
 ## Non-goals
 
-- No sound in v1 (specified as a later phase).
-- No save/restore in v1 (specified as a later phase).
-- No AGI v3 support in v1; the resource layer is where it would be added.
+- No AGI v3 support; the resource layer is where it would be added.
 - No LOGIC decompiler or authoring tools. The engine executes bytecode; it does
   not produce source.
 - No mobile/touch controls in v1.
@@ -88,6 +87,8 @@ web-agi/                (new) the browser engine
                         rooms, motion, menus, inventory
     render/             screens, sprites, text, canvas output
     input/              keyboard, the command line, the parser
+    audio/              the AudioContext and the SOUND player (M7)
+    storage/            saved games (M8)
   test/                 unit tests, mirroring src/
 package.json            workspace root
 ```
@@ -149,6 +150,9 @@ VOL.0 ... VOL.n                   resource payloads
 OBJECT                            inventory items, encrypted
 WORDS.TOK                         vocabulary, packed and encrypted
 ```
+
+SNDDIR is read from the start even though nothing played its resources before
+M7; the resource layer treats all four types alike.
 
 ### Resource manager
 
@@ -438,6 +442,119 @@ When the player submits a line, the parser:
 An unrecognised word must be reported as such, which means the parser has to
 distinguish "not in the vocabulary" from "recognised but not understood here".
 
+## Sound (M7)
+
+Sound is not part of the playable core and was deliberately deferred, but the
+core was written so that adding it changes no control flow: every sound command
+already sets the flag scripts wait on. M7 changes only *when* that flag is set.
+
+### SOUND resources
+
+The bundled game has 28 of them. The layout was read out of the game rather than
+taken from documentation, and it holds for all 28:
+
+```text
+byte 0-7     four 16-bit little-endian offsets, one per channel
+             the first is always 8, and the four are ascending
+channels     3 tone channels, then 1 noise channel
+notes        5 bytes each, the run ending at a 0xFFFF terminator
+```
+
+Every one of the 112 channels in the game terminates and ends exactly on the
+next channel's offset, which is what confirms the 5-byte note.
+
+```text
+note[0..1]   duration, 16-bit little-endian, in 1/60 s ticks
+note[2..3]   frequency divisor: (b2 & 0x3f) << 4 | (b3 & 0x0f)
+note[4]      attenuation in the low nibble: 0 loudest, 15 silent
+```
+
+A tone channel's frequency is `111860 / divisor` Hz — the PCjr's SN76496 clock
+divided down. **A divisor of 0 occurs in the game and means a rest**, not a
+division by zero; it is the one value that makes a straightforward reader
+misbehave. Attenuation is 2 dB per step, so gain is `10 ** (-att / 10)`, with 15
+forced to silence rather than approximated.
+
+On the noise channel the frequency field means something else: the low three bits
+of `b3` select the noise type and shift rate, with bit 2 set choosing white noise
+over periodic.
+
+### Playback
+
+WebAudio maps onto this directly: three `square` oscillators, one per tone
+channel, plus a looping noise buffer, each through its own gain node. Notes are
+written as scheduled parameter changes on the audio clock rather than played from
+the game cycle — the game's longest sound is 58 seconds, and the two clocks
+drift.
+
+Two constraints shape the design more than the format does:
+
+- **An `AudioContext` starts suspended until a user gesture.** The context is
+  created lazily and resumed on the first keypress, and a suspended context
+  degrades to what M4 did — silence, with the flag set on schedule — never to a
+  stall.
+- **`stop.sound` must release whatever was waiting.** A script that stops its own
+  sound and then waits on its flag would otherwise hang. This is the one deadlock
+  playback can introduce that a no-op could not.
+
+`FLAG.SOUND_ON` and `VAR.SOUND_VOLUME` are already maintained by the cycle and
+already shown on the status line; playback follows them. Playback is stopped on
+`new.room` and on `quit`, with the rest of the per-room teardown, because
+scheduled audio otherwise outlives the room that started it.
+
+## Save and restore (M8)
+
+The interpreter's state is kept as data rather than scattered across closures,
+which is what makes this a serialisation problem rather than a refactor.
+
+### What a snapshot holds
+
+```text
+GameState     256 variables, 256 flags, 12 strings, the room number
+Inventory     the current room of every item, not OBJECT's starting rooms
+ViewTable     every active object: view/loop/cel, position, direction, step and
+              cycle timing, motion state, priority, and its flags
+Machine       horizon, block rectangle, playerControl, inputAccepted,
+              statusLineVisible, textMode, text colours, currentPicture,
+              loadedPictures, lastLine
+MenuBar       which items the game has greyed out
+scan starts   the per-logic re-entry points set by set.scan.start
+```
+
+The last of these is the one that is easy to miss. `set.scan.start` moves where a
+script resumes next cycle, and it lives on the compiled logic beside the decoded
+instructions, which makes it look like a property of the resource. It is not: a
+game restored without it puts every mid-wait script back at the top of its
+question. The original interpreter saves these too.
+
+Nothing derived is saved. Decoded views, the drawn background, the saved sprite
+areas and the text layer are all rebuilt by replaying the room load, exactly as
+`new.room` builds them. Saving them would double the format and give it a second
+way to be wrong.
+
+A snapshot is a JSON-serialisable value carrying a format version and a
+fingerprint of the game it came from (the resource counts and item count that
+`summariseGame` already computes). A snapshot from another game or an older
+format version is refused with a message, not applied.
+
+### Restoring
+
+`restore.game` replaces the state from inside a running cycle, so the rest of
+that cycle must be abandoned the way `new.room` abandons it. The engine's
+`Unwind` already carries a kind for exactly this; restore becomes another kind
+rather than a second mechanism, and the cycle then loads the room the snapshot
+names.
+
+Saves live in named slots in IndexedDB, keyed by the game fingerprint, and can be
+exported to and imported from a file so they survive the browser clearing site
+data. Storage fails at the moment a player is trying not to lose progress, so a
+failure is reported in the shell like any other, never swallowed.
+
+The save and restore dialogs are the same suspend-the-cycle `Interaction` the
+inventory screen and text windows use, and the game's own menus and key bindings
+already offer Save and Restore — the previously stubbed commands simply start
+doing something.
+
 ## Rendering to canvas
 
 A single `<canvas>` at 320x200, scaled up by whole-number factors with smoothing
@@ -489,7 +606,13 @@ golden       load the bundled game, run N cycles from a fixed start, and compare
              a hash of the visual screen against a recorded value
 regression   each fixed game bug becomes a test that runs the shortest cycle
              sequence reproducing it
+round trip   run N cycles, snapshot, run M more, restore the snapshot, run
+             those M again, and compare screen hashes
 ```
+
+The round-trip test is how M8 is proved. A snapshot that omits a field restores
+without error and diverges quietly minutes later; a diverging hash is the only
+thing that finds the fields nobody thought of.
 
 The golden tests matter more than usual here: an interpreter has enormous state,
 and most defects show up as a wrong picture rather than an exception. Being able
@@ -500,15 +623,21 @@ only the final blit needs a canvas.
 
 ## Milestones
 
-Each milestone ends with something observable, not just code.
+Each milestone ends with something observable, not just code. M0-M6 are done;
+M7 and M8 are specified below and not yet built. The numbering is the one
+[plan.md](plan.md) works to.
 
 ```text
-M1  Workspace and shell
-    npm workspaces, Vite, canvas mounted, game files bundled and fetched.
-    Ends with: the four DIR files parsed, resource counts printed on screen.
+M0  Workspace foundation
+    npm workspaces, Vite, the page mounted, game files bundled with a manifest.
+    Ends with: the dev server serves a page and tests run in both packages.
+
+M1  Resource layer
+    The four DIR files, the resource manager, WORDS.TOK and OBJECT.
+    Ends with: resource, item and word counts printed on screen.
 
 M2  Static rendering
-    Resource manager, agi-extract's decoders wired in.
+    The two screens, the display buffer, agi-extract's decoders wired in.
     Ends with: any PICTURE drawn on the canvas, any VIEW cel drawn over it.
 
 M3  LOGIC reader
@@ -526,20 +655,30 @@ M5  Ego moves
 M6  The game is playable
     Text windows, status line, inventory, menus, the prompt and the parser.
     Ends with: the game's opening is playable from the first room onward.
+
+M7  Sound
+    SOUND resources decoded, WebAudio playback, the sound commands made real.
+    Ends with: the game's sounds play, and stopping one releases the script.
+
+M8  Save and restore
+    Snapshot of the interpreter's state, storage, and the two dialogs.
+    Ends with: save, reload the page, restore, and play continues.
+```
+
+```text
+M0  complete    M3  complete    M6  complete
+M1  complete    M4  complete    M7  not started
+M2  complete    M5  complete    M8  not started
 ```
 
 ## Later phases
 
-Specified now so the v1 design does not preclude them.
+Specified now so the design does not preclude them. Sound and save/restore were
+in this list while M0-M6 were the whole of the spec; they are now *Sound (M7)*
+and *Save and restore (M8)* above, and the two concessions the core made to them
+— sound commands setting their flags, and state kept as data — are what let them
+be milestones rather than rewrites.
 
-- **Sound.** AGI PCjr sound is three tone channels plus one noise channel, driven
-  by SOUND resources. WebAudio maps onto this well. The engine must already treat
-  sound commands as no-ops that set the flags scripts wait on, so adding real
-  playback later does not change control flow.
-- **Save and restore.** The interpreter's state is a serialisable value:
-  variables, flags, strings, the view table, inventory and the current room. The
-  state is therefore kept as data rather than scattered across closures, so
-  serialising it later is a matter of writing it out.
 - **Player-supplied game files.** A second `ResourceSource` implementation.
 - **AGI v3.** Different directory layout and compressed VOL entries; confined to
   the resource layer by design.
