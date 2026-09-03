@@ -7,7 +7,9 @@ import { VAR } from './engine/state.ts';
 import { bindKeyboard } from './input/keyboard.ts';
 import { present } from './engine/present.ts';
 import { Renderer } from './render/renderer.ts';
+import { fingerprint } from './engine/snapshot.ts';
 import { ResourceManager } from './resources/manager.ts';
+import { browserStorage, exportSaves, importSaves, SaveStore } from './storage/saves.ts';
 import { parseObjectFile } from './resources/objects.ts';
 import { BundledSource } from './resources/source.ts';
 import { formatSummary, summariseGame } from './resources/summary.ts';
@@ -46,6 +48,12 @@ try {
   const sound = new SoundPlayer();
   const machine = new Machine({ resources, objects, vocabulary, sound });
   machine.setHandlers(buildHandlers());
+
+  // Saved games live in the browser, keyed by which game they belong to. A
+  // browser that refuses storage leaves the store empty rather than absent, so
+  // the save screen can say so instead of the command silently doing nothing.
+  const storage = browserStorage();
+  machine.saves = new SaveStore(fingerprint(machine), storage);
 
   const cycle = new Cycle(machine);
 
@@ -87,6 +95,9 @@ try {
     '(Ctrl-B, Alt-Z, F1-F10 and the rest, as its menus advertise)',
     'sound plays from your first keypress, and the game\'s own sound setting',
     'turns it off and on',
+    storage
+      ? 'F5 saves the game and F7 restores it, as the game\'s own menus say'
+      : 'this browser will not let the game save; F5 and F7 will say so',
     'F7 toggles the priority screen, F8 dumps the engine state below,',
     'F9 disassembles the current room\'s script',
   ]);
@@ -116,6 +127,58 @@ try {
       'Reload the page to start again.',
     ]);
   };
+
+  /**
+   * Saves as a file, so they survive the browser clearing its site data.
+   *
+   * The two buttons live in the shell rather than on a key, because every key
+   * worth having is one the game has already bound.
+   */
+  const addTool = (label: string, onClick: () => void) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.addEventListener('click', onClick);
+    // The game keeps the keyboard: a button left focused would swallow the
+    // next keypress instead of walking ego.
+    button.addEventListener('click', () => button.blur());
+    shell.tools.append(button);
+  };
+
+  addTool('Export saves', () => {
+    const saves = machine.saves;
+    if (!saves || saves.list().length === 0) {
+      shell.setStatus('there are no saved games to export');
+      return;
+    }
+
+    const blob = new Blob([exportSaves(saves)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'web-agi-saves.json';
+    link.click();
+    URL.revokeObjectURL(url);
+    shell.setStatus(`exported ${saves.list().length} saved game(s)`);
+  });
+
+  addTool('Import saves', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (!file || !machine.saves) return;
+
+      try {
+        const count = importSaves(machine.saves, await file.text());
+        shell.setStatus(`imported ${count} saved game(s); press F7 to restore one`);
+      } catch (cause) {
+        shell.showError('Those saves could not be imported', cause);
+      }
+    });
+    input.click();
+  });
 
   // Cycles run on their own clock; the display only paints what is there.
   let last = performance.now();

@@ -38,6 +38,7 @@ export function enterRoom(machine: Machine, room: number): void {
   machine.viewTable.reset();
   machine.viewTable.discardViews();
   machine.savedAreas.length = 0;
+  machine.scenery.length = 0;
   machine.block = noBlock();
   machine.playerControl = true;
   machine.keyboard.clear();

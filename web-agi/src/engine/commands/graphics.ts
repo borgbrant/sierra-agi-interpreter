@@ -21,8 +21,10 @@ export const GRAPHICS: Record<string, Handler> = {
     const drawn = Screens.fromPicture(m.resources.loadSync('pic', id));
     m.background.copyFrom(drawn);
     m.currentPicture = id;
-    // Nothing on the old picture is worth putting back.
+    // Nothing on the old picture is worth putting back -- neither the sprites'
+    // saved rectangles nor the scenery a script added to the picture before it.
     m.savedAreas.length = 0;
+    m.scenery.length = 0;
   },
 
   'overlay.pic': (m, [v]) => {

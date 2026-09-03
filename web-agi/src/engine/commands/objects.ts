@@ -428,5 +428,14 @@ function addCel(
 
   // A priority of zero asks for the band the object is standing in, the same
   // rule an animated object follows.
-  addToPicture(m, { cel: frame, loop }, x, y, priority === 0 ? priorityForRow(y) : priority, margin);
+  addToPicture(
+    m,
+    { cel: frame, loop },
+    x,
+    y,
+    priority === 0 ? priorityForRow(y) : priority,
+    margin,
+    view,
+    cel,
+  );
 }

@@ -19,6 +19,12 @@ const STYLE = `
   .shell__stage { display: flex; align-items: center; justify-content: center; }
   .shell__status { min-height: 1.5em; color: #6f8fbf; }
   .shell__log { width: min(640px, 100%); margin: 0; white-space: pre-wrap; word-break: break-word; color: #9a9aad; }
+  .shell__tools { display: flex; gap: 8px; }
+  .shell__tools button {
+    font: inherit; font-size: 12px; color: #9a9aad; background: #1b1b22;
+    border: 1px solid #33333f; border-radius: 4px; padding: 4px 10px; cursor: pointer;
+  }
+  .shell__tools button:hover { color: #d8d8e0; border-color: #4a4a5a; }
   .shell__log p { margin: 0 0 2px; }
   .shell__error {
     width: min(640px, 100%); margin: 0; padding: 12px 14px; box-sizing: border-box;
@@ -31,6 +37,9 @@ const STYLE = `
 /** Where the engine mounts, and where failures surface. */
 export class Shell {
   readonly stage: HTMLElement;
+
+  /** Where the shell's own controls go, as opposed to the game's. */
+  readonly tools: HTMLElement;
 
   #status: HTMLElement;
   #log: HTMLElement;
@@ -50,6 +59,9 @@ export class Shell {
     this.stage = document.createElement('div');
     this.stage.className = 'shell__stage';
 
+    this.tools = document.createElement('div');
+    this.tools.className = 'shell__tools';
+
     this.#status = document.createElement('div');
     this.#status.className = 'shell__status';
 
@@ -58,7 +70,7 @@ export class Shell {
 
     this.#errors = document.createElement('div');
 
-    root.append(style, title, this.stage, this.#status, this.#log, this.#errors);
+    root.append(style, title, this.stage, this.tools, this.#status, this.#log, this.#errors);
   }
 
   /**

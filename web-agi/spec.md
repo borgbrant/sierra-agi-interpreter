@@ -22,7 +22,7 @@ These were settled before writing this spec and the design assumes them:
 stack        TypeScript + Vite, no UI framework
 game data    bundled with the app at build time
 v1 scope     playable core; no sound, no save/restore   (M0-M6, shipped)
-v2 scope     sound (M7, shipped), then save and restore (M8)
+v2 scope     sound (M7) and save/restore (M8), both shipped
 code sharing npm workspaces, web-agi imports agi-extract
 ```
 
@@ -581,8 +581,9 @@ ViewTable     every active object: view/loop/cel, position, direction, step and
               cycle timing, motion state, priority, and its flags
 Machine       horizon, block rectangle, playerControl, inputAccepted,
               statusLineVisible, textMode, text colours, currentPicture,
-              loadedPictures, lastLine
-MenuBar       which items the game has greyed out
+              loadedPictures, lastLine, the input line's cursor
+MenuBar       whether the menu is offered, and which items are greyed out
+scenery       the cels a script painted into the picture with add.to.pic
 scan starts   the per-logic re-entry points set by set.scan.start
 ```
 
@@ -593,9 +594,14 @@ game restored without it puts every mid-wait script back at the top of its
 question. The original interpreter saves these too.
 
 Nothing derived is saved. Decoded views, the drawn background, the saved sprite
-areas and the text layer are all rebuilt by replaying the room load, exactly as
-`new.room` builds them. Saving them would double the format and give it a second
-way to be wrong.
+areas and the text layer are all rebuilt from what produced them. Saving them
+would double the format and give it a second way to be wrong.
+
+The background is the exception that shows the rule: a snapshot holds the
+picture's *number*, and a picture is a file, so anything a script painted into
+it with `add.to.pic` would be lost. The engine therefore keeps the list of cels
+that were added and replays them — which is what brings the customers back with
+the bar.
 
 A snapshot is a JSON-serialisable value carrying a format version and a
 fingerprint of the game it came from (the resource counts and item count that
@@ -607,13 +613,22 @@ format version is refused with a message, not applied.
 `restore.game` replaces the state from inside a running cycle, so the rest of
 that cycle must be abandoned the way `new.room` abandons it. The engine's
 `Unwind` already carries a kind for exactly this; restore becomes another kind
-rather than a second mechanism, and the cycle then loads the room the snapshot
-names.
+rather than a second mechanism. The cycle then loads nothing: the snapshot
+brought the room, the objects and the picture with it.
 
-Saves live in named slots in IndexedDB, keyed by the game fingerprint, and can be
-exported to and imported from a file so they survive the browser clearing site
-data. Storage fails at the moment a player is trying not to lose progress, so a
-failure is reported in the shell like any other, never swallowed.
+Two orderings inside the restore matter, and both were found by testing rather
+than by reading. The sound is stopped *before* the state is read, because
+stopping a sound sets the flag its script was waiting on and a flag set
+afterwards is the discarded game writing into the restored one. And a view table
+slot that had no view when the game was saved is emptied rather than left alone:
+releasing a slot does not clear it, so a save taken before an object existed
+would otherwise leave that object on screen.
+
+Saves live in named slots in the browser's own storage, keyed by the game
+fingerprint, and can be exported to and imported from a file so they survive the
+browser clearing site data. Storage fails at the moment a player is trying not to
+lose progress, so a failure is reported where the player is looking — on the save
+screen itself — and never swallowed.
 
 The save and restore dialogs are the same suspend-the-cycle `Interaction` the
 inventory screen and text windows use, and the game's own menus and key bindings
@@ -688,9 +703,8 @@ only the final blit needs a canvas.
 
 ## Milestones
 
-Each milestone ends with something observable, not just code. M0-M7 are done;
-M8 is specified below and not yet built. The numbering is the one
-[plan.md](plan.md) works to.
+Each milestone ends with something observable, not just code. All of them are
+done. The numbering is the one [plan.md](plan.md) works to.
 
 ```text
 M0  Workspace foundation
@@ -733,7 +747,7 @@ M8  Save and restore
 ```text
 M0  complete    M3  complete    M6  complete
 M1  complete    M4  complete    M7  complete
-M2  complete    M5  complete    M8  not started
+M2  complete    M5  complete    M8  complete
 ```
 
 ## Later phases

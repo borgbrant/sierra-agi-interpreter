@@ -3,7 +3,7 @@
 Companion to [spec.md](spec.md). The spec says *what* to build; this says in what
 order, in which files, and how each step is proven to work.
 
-> **M0-M7 are done and shipped; M8 is not started.** The finished
+> **M0-M8 are done and shipped: this plan is finished.** The
 > milestones are kept as they were written, for the reasoning behind the
 > sequencing and for the format measurements in the next section. They are not a
 > description of the code as built: several modules ended up named or split
@@ -20,7 +20,7 @@ M4  The machine runs          complete
 M5  Ego moves                 complete
 M6  Playable                  complete
 M7  Sound                     complete
-M8  Save and restore          not started
+M8  Save and restore          complete
 ```
 
 ## Grounding: what was verified before planning
@@ -477,7 +477,7 @@ has no test.
 
 ---
 
-## M8 — Save and restore — not started
+## M8 — Save and restore — complete
 
 The spec's claim that this is cheap is now testable: interpreter state was kept
 as data rather than in closures precisely so that this milestone is a
@@ -519,6 +519,14 @@ src/storage/saves.ts        slots in IndexedDB; export and import a file
 src/engine/savegame.ts      the save and restore dialogs, as Interactions
 src/engine/commands/items.ts  save.game / restore.game stop being stubs
 ```
+
+*As built:* as listed, with one substitution. The store is `localStorage`, not
+IndexedDB, and the reason is shape rather than size: `localStorage` is
+synchronous and so is the cycle. A script calls `save.game` mid-cycle and wants
+an answer; against an asynchronous store every dialog becomes a state machine
+waiting on a promise, for a database that holds eleven kilobytes per save. The
+export and import ended up as two buttons in the shell rather than keys, because
+every key worth having is one the game has already bound.
 
 `snapshot.ts` is the whole milestone; the other three are how a player reaches
 it. A `Snapshot` is a plain JSON-serialisable value carrying a format version
@@ -565,6 +573,38 @@ make manual testing feel like proof.
 play continues from the same picture, the same inventory and the same script
 state; and the round-trip test passes over a cycle sequence that includes a
 window, a scripted walk and a room change.
+
+**Done.** 21 tests in `test/save.test.ts`, and the whole suite at 290. Three of
+them carry the milestone, and they fail for different reasons: the round trip
+(save, play on, restore, replay, same screen) catches state the snapshot never
+captured; a second round trip into a *barely started* engine catches what only
+worked because the running game already had it, which is the case a player
+actually meets after a reload; and comparing a fresh capture against the
+restored one catches state that is captured and then not put back. Each was
+checked by breaking the code on purpose -- dropping the inventory, the horizon,
+the scan starts, the scenery, and moving ego two pixels -- and every one of the
+five was caught.
+
+### What the tests found
+
+Two real defects, both invisible by reading:
+
+- **A restore silenced the sound after loading the flags.** Stopping a sound
+  sets the flag its script was waiting on -- the rule that keeps `stop.sound`
+  from stranding a script -- so the game being replaced was writing a flag into
+  the state that had just replaced it. Found as a single flag differing after a
+  restore into a fresh engine. The old game now ends before the new one is read.
+- **A slot with no view kept the one the running game left in it.** `reset`
+  releases a view table slot without emptying it, so restoring a save taken
+  before an object existed left that object on screen.
+
+### What a save cannot bring back
+
+`add.to.pic` scenery is not in the picture file, and the picture is all a
+snapshot stores of the background. The engine therefore remembers the cels a
+script painted into the picture and replays them on restore, which is what keeps
+the customers in Lefty's bar. That is a deliberate addition rather than a
+faithful reproduction: the original redraws the picture and loses them.
 
 ---
 
@@ -623,15 +663,23 @@ milestone until there is a second game to run.
 Sound and save/restore were in this list while M0-M6 were the whole plan. The
 two concessions v1 made to them — sound commands setting their flags, and
 interpreter state kept as data rather than in closures — are what let them
-arrive now as M7 and M8 rather than as a rewrite. That was the bet, and M8 is
-where it gets checked.
+arrive as M7 and M8 rather than as a rewrite. That was the bet, and it paid:
+sound changed no control flow, and saving turned out to be one module of
+copying fields plus a second that rebuilds what the fields imply. The two
+defects M8 found were both about *order and emptiness* — a flag written after
+the state that replaced it, a slot released without being emptied — and neither
+is the kind of thing keeping state in closures would have made easier.
 
 ## Open questions still open
 
 Two of the spec's four are answered above. These remain:
 
-- Whether LSL1 needs a game-specific loader for interpreter quirks. Expected to
-  surface at M4-M6; not worth investigating before then.
+- ~~Whether LSL1 needs a game-specific loader for interpreter quirks.~~
+  Answered: no. What it needed instead were three rules the documentation does
+  not state — a control line is a gap in the depths rather than a depth, a
+  moving object draws over a stopped one at the same priority, and a script
+  spinning on `have.key` is waiting rather than looping — and all three belong
+  to the engine, not to this game.
 - ~~Whether the debug overlay ships in the production build.~~ Answered: it
   ships. The whole of `shell/debug.ts` plus the disassembler is about 1 KB
   gzipped, which is not worth a build flag and a second code path.

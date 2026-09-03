@@ -9,9 +9,11 @@
 import { decodeLogic, type Condition, type Instruction } from '../logic/reader.ts';
 import { parseLogic, type LogicResource } from '../logic/resource.ts';
 import type { ResourceManager } from '../resources/manager.ts';
+import type { SaveStore } from '../storage/saves.ts';
 import type { ObjectFile } from '../resources/objects.ts';
 import type { Vocabulary } from '../resources/words.ts';
 import { Screens } from '../render/screens.ts';
+import { addToPicture, type AddedCel } from './animate.ts';
 import type { SavedArea } from '../render/sprite.ts';
 import { Keyboard } from '../input/keyboard.ts';
 import { parseInput, saidMatches, type ParsedWord } from '../input/parser.ts';
@@ -33,10 +35,10 @@ import { ViewTable, type View, type ViewObject } from './viewtable.ts';
 
 /** Raised to abandon the rest of a cycle, through however many nested calls. */
 export class Unwind extends Error {
-  readonly kind: 'new-room' | 'quit' | 'restart';
+  readonly kind: 'new-room' | 'quit' | 'restart' | 'restore';
   readonly room: number;
 
-  constructor(kind: 'new-room' | 'quit' | 'restart', room = 0) {
+  constructor(kind: 'new-room' | 'quit' | 'restart' | 'restore', room = 0) {
     super(kind);
     this.name = 'Unwind';
     this.kind = kind;
@@ -138,6 +140,18 @@ export class Machine {
   /** Set by quit. */
   stopped = false;
 
+  /**
+   * Set when an interaction has replaced the whole machine with a saved game.
+   *
+   * The script that called `restore.game` belongs to the game that has just
+   * been thrown away, so the rest of its cycle is abandoned -- the same
+   * treatment `new.room` gets, for the same reason.
+   */
+  restored = false;
+
+  /** Where saved games are kept, or null when the shell has not provided any. */
+  saves: SaveStore | null = null;
+
   /** Which pictures the scripts have asked to be loaded. */
   readonly loadedPictures = new Set<number>();
 
@@ -213,6 +227,15 @@ export class Machine {
 
   /** What the objects covered when they were last drawn, so it can be put back. */
   readonly savedAreas: SavedArea[] = [];
+
+  /**
+   * Cels a script painted into the picture with `add.to.pic`.
+   *
+   * The background itself is never saved -- a snapshot holds the picture
+   * number, and pictures are files. Anything a script drew on top of one is
+   * not, so it is kept here to be replayed when a game is restored.
+   */
+  readonly scenery: AddedCel[] = [];
 
   /** What the player is pressing. */
   readonly keyboard = new Keyboard();
@@ -437,7 +460,16 @@ export class Machine {
         this.#spins = 0;
 
         const waiting = handler(this, instruction.args);
-        if (waiting) yield waiting;
+        if (waiting) {
+          yield waiting;
+
+          // The interaction may have been a restore, in which case everything
+          // this script was running against is gone.
+          if (this.restored) {
+            this.restored = false;
+            throw new Unwind('restore');
+          }
+        }
         pc++;
       }
     } finally {
@@ -625,6 +657,52 @@ export class Machine {
    *
    * @see CompiledLogic.scanStart
    */
+  /**
+   * Paint one remembered cel back into the picture, when restoring a game.
+   *
+   * Goes through the same drawing as `add.to.pic` did, and records itself
+   * again, so a game saved, restored and saved once more keeps its scenery.
+   */
+  addSceneryFromSave(saved: AddedCel): void {
+    const frame = this.loadView(saved.view).loops[saved.loop]?.cels[saved.cel];
+    if (!frame) {
+      this.stub(`restore: view ${saved.view} has no loop ${saved.loop} cel ${saved.cel}`);
+      return;
+    }
+
+    addToPicture(
+      this,
+      { cel: frame, loop: saved.loop },
+      saved.x,
+      saved.y,
+      saved.priority,
+      saved.margin,
+      saved.view,
+      saved.cel,
+    );
+  }
+
+  /** Every script's re-entry point, for a snapshot to keep. */
+  scanStarts(): [number, number][] {
+    return [...this.#logic.values()]
+      .filter((compiled) => compiled.scanStart !== 0)
+      .map((compiled) => [compiled.id, compiled.scanStart]);
+  }
+
+  /**
+   * Put the re-entry points back, compiling the scripts that need them.
+   *
+   * A restored game is usually a fresh page, where nothing has been compiled
+   * yet -- so this compiles each script named rather than skipping it, or the
+   * one script that was mid-wait would come back at the top of its question.
+   */
+  restoreScanStarts(starts: readonly (readonly [number, number])[]): void {
+    for (const compiled of this.#logic.values()) compiled.scanStart = 0;
+    for (const [id, address] of starts) {
+      if (this.resources.isPresent('logic', id)) this.compile(id).scanStart = address;
+    }
+  }
+
   setScanStart(): void {
     if (this.currentLogic) this.currentLogic.scanStart = this.#nextAddress;
   }
@@ -818,6 +896,7 @@ export class Machine {
     this.savedAreas.length = 0;
 
     this.loadedPictures.clear();
+    this.scenery.length = 0;
     this.currentPicture = null;
     this.pictureShown = false;
     this.background.clear();

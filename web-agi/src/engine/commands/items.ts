@@ -10,6 +10,7 @@ import { decodeView } from 'agi-extract/view';
 
 import { InventoryScreen, ObjectCloseUp } from '../inventory.ts';
 import type { Handler, Machine } from '../machine.ts';
+import { RestoreScreen, SaveScreen } from '../savegame.ts';
 import { MenuNavigation } from '../menu.ts';
 import { formatMessage } from '../message.ts';
 import { FLAG } from '../state.ts';
@@ -79,8 +80,12 @@ export const ITEMS: Record<string, Handler> = {
   // Saving needs a place to put a game, which is a later phase; the commands
   // are answered rather than ignored so a script that offers them and then
   // checks whether they happened sees a truthful "no".
-  'save.game': (m) => m.stub('save.game'),
-  'restore.game': (m) => m.stub('restore.game'),
+  // The two screens are interactions, so the script stops at the command and
+  // resumes after it, exactly as it does at a message window. With nowhere to
+  // keep saves -- a test machine, a browser with storage switched off -- the
+  // commands go back to being noted and ignored rather than failing.
+  'save.game': (m) => (m.saves ? new SaveScreen(m.saves, m) : m.stub('save.game')),
+  'restore.game': (m) => (m.saves ? new RestoreScreen(m.saves) : m.stub('restore.game')),
   'restart.game': (m) => m.restart(),
   'init.disk': () => {},
 

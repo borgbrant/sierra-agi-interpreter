@@ -99,7 +99,17 @@ export function addToPicture(
   y: number,
   priority: number,
   margin: number,
+  view?: number,
+  cel?: number,
 ): void {
+  // Remembered as well as drawn. A saved game stores the picture *number*, not
+  // its pixels, so anything a script painted into the background has to be
+  // replayed when the game is restored -- otherwise the bar comes back without
+  // its customers.
+  if (view !== undefined && cel !== undefined) {
+    machine.scenery.push({ view, loop: object.loop, cel, x, y, priority, margin });
+  }
+
   drawCel(machine.background, object.cel, {
     x,
     y,
@@ -119,6 +129,21 @@ export function addToPicture(
   // The scene changed underneath whatever is drawn on top of it.
   machine.screens.copyFrom(machine.background);
   machine.savedAreas.length = 0;
+}
+
+/**
+ * A cel a script painted into the background with `add.to.pic`.
+ *
+ * Kept so that restoring a game can put it back: see `snapshot.ts`.
+ */
+export interface AddedCel {
+  view: number;
+  loop: number;
+  cel: number;
+  x: number;
+  y: number;
+  priority: number;
+  margin: number;
 }
 
 export type { SavedArea };

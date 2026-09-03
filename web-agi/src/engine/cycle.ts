@@ -143,6 +143,16 @@ export class Cycle {
         this.restart();
         return true;
       }
+      if (error.kind === 'restore') {
+        // Nothing to load: the snapshot brought the room, the objects and the
+        // picture with it. What is left is to stop counting this room as one
+        // the game keeps re-entering, and to let the next cycle run normally.
+        this.#lastRoom = machine.state.room;
+        this.reentries = 1;
+        this.#consumeOncePerCycle();
+        this.count++;
+        return true;
+      }
       // new.room: the rest of this cycle is abandoned deliberately. What is
       // consumed once per cycle is still consumed, though -- a controller left
       // set here fires again next cycle, and a room entered by a controller
