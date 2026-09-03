@@ -25,7 +25,7 @@ v1 scope     playable core; no sound, no save/restore   (M0-M6, shipped)
 v2 scope     sound (M7) and save/restore (M8), both shipped
 v3 scope     the sound chip switch (M9), the display seam (M10), what the
              scripts are told (M11), CGA (M12) and Hercules (M13), all shipped
-v4 scope     the shell the player sees (M14), specified and not started
+v4 scope     the shell the player sees (M14), shipped
 code sharing npm workspaces, web-agi imports agi-extract
 ```
 
@@ -1006,8 +1006,8 @@ only the final blit needs a canvas.
 
 ## Milestones
 
-Each milestone ends with something observable, not just code. M0-M13 are done;
-M14 is specified and not started. The numbering is the one [plan.md](plan.md)
+Each milestone ends with something observable, not just code. M0-M14 are done.
+The numbering is the one [plan.md](plan.md)
 works to, and that document records what each one turned out to need --
 including where it contradicted what was written here first.
 
@@ -1084,7 +1084,7 @@ M14 The shell the player sees
 ```text
 M0  complete    M4  complete    M8  complete     M12 complete
 M1  complete    M5  complete    M9  complete     M13 complete
-                                                 M14 not started
+                                                 M14 complete
 M2  complete    M6  complete    M10 complete
 M3  complete    M7  complete    M11 complete
 ```
@@ -1109,4 +1109,6 @@ To settle before or during the milestone they affect:
   original interpreter special-cased.
 - How faithfully to reproduce the original's timing. The cycle rate is specified,
   but the original's speed also depended on the hardware it ran on.
-- Whether the debug overlay ships in the production build or is stripped.
+- ~~Whether the debug overlay ships in the production build or is stripped.~~
+  Answered: it ships behind the developer panel rather than on the player's
+  surface.

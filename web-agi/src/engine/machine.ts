@@ -33,7 +33,7 @@ import { Inventory } from './inventory.ts';
 import { defaultLayout, type ScreenLayout } from './layout.ts';
 import { CommandLine, KeyPress, type Interaction, type Key } from './interaction.ts';
 import { KeyBindings, MenuBar } from './menu.ts';
-import { noBlock, type Block } from './motion.ts';
+import { checkFooting, noBlock, priorityForRow, type Block } from './motion.ts';
 import { FLAG, GameState, MAX_SOUND_VOLUME, SOUND_GENERATOR_VALUE, VAR } from './state.ts';
 import { ViewTable, type View, type ViewObject } from './viewtable.ts';
 
@@ -578,9 +578,9 @@ export class Machine {
       case 'greaterv':
         return state.getVar(a[0]!) > state.getVar(a[1]!);
       case 'isset':
-        return state.getFlag(a[0]!);
+        return this.#flag(a[0]!);
       case 'issetv':
-        return state.getFlag(state.getVar(a[0]!));
+        return this.#flag(state.getVar(a[0]!));
       case 'has':
         return this.inventory.isCarried(a[0]!);
       case 'obj.in.room':
@@ -624,6 +624,19 @@ export class Machine {
         this.stub(condition.name);
         return false;
     }
+  }
+
+  /** Read a flag, refreshing interpreter-owned terrain flags when asked. */
+  #flag(index: number): boolean {
+    if (index === FLAG.EGO_ON_WATER || index === FLAG.EGO_TOUCHED_SIGNAL) {
+      const ego = this.viewTable.ego;
+      const priority = ego.fixedPriority ? ego.priority : priorityForRow(ego.y);
+      const footing = checkFooting(this.background, ego, priority);
+      this.state.setFlag(FLAG.EGO_ON_WATER, footing.water);
+      this.state.setFlag(FLAG.EGO_TOUCHED_SIGNAL, footing.signal);
+    }
+
+    return this.state.getFlag(index);
   }
 
   /**

@@ -3,7 +3,7 @@
 Companion to [spec.md](spec.md). The spec says *what* to build; this says in what
 order, in which files, and how each step is proven to work.
 
-> **M0-M13 are done and shipped. M14 is specified and not started.** The
+> **M0-M14 are done and shipped.** The
 > milestones are kept as they were written, for the reasoning behind the
 > sequencing and for the format measurements in the next section. They are not a
 > description of the code as built: several modules ended up named or split
@@ -26,7 +26,7 @@ M10 The display driver seam   complete
 M11 What the scripts see      complete
 M12 CGA                       complete
 M13 Hercules                  complete
-M14 The shell the player sees not started
+M14 The shell the player sees complete
 ```
 
 ## Grounding: what was verified before planning
@@ -1679,7 +1679,7 @@ is where the swatch-and-look mitigation did the work instead.
 
 ---
 
-## M14 — The shell the player sees — not started
+## M14 — The shell the player sees — complete
 
 Thirteen milestones went into the engine and none into the page around it. It
 shows: the shell is a development instrument with a game in the middle of it,
@@ -1778,6 +1778,23 @@ tell which keys belong to it, change the display and the sound, save to a file
 and load it back, and never see a cycle count or a resource table -- while every
 one of the developer surfaces is still one gesture away, and no shell key
 shadows a key the game has bound.
+
+**Done.** The shell now has two surfaces. The player sees the canvas, grouped
+settings, save-file actions, a short list of the game's own keys, and a status
+line that says what the shell just did. The resource table, cycle/room/ego
+telemetry, priority screen, state dump and disassembly live behind the
+Developer panel.
+
+The F7 collision is gone. The shell no longer binds unmodified function keys;
+developer shortcuts are `Alt+Shift+P/S/D`, active only while the Developer panel
+is open, and every shortcut is checked against `machine.keyBindings` before the
+shell claims it. If a game binds the same key, the shell refuses it and the game
+keeps the key.
+
+Four tests in `test/shell.test.ts` hold that rule: F7/F8/F9 are not shell
+shortcuts, the developer shortcuts require the modifier pair, a game-owned key
+is refused, and the three unclaimed shortcuts map to the three debug actions.
+The whole suite is at 372 tests.
 
 ---
 

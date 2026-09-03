@@ -75,11 +75,22 @@ export function drawObjects(machine: Machine): void {
  */
 function drawingOrder(machine: Machine): ViewObject[] {
   const order = (object: ViewObject) => (object.update ? 1 : 0);
+  const row = (object: ViewObject) =>
+    object.fixedPriority ? prioritySortRow(object.priority) : object.y;
   return machine.viewTable
     .visible()
     .sort(
-      (a, b) => a.priority - b.priority || order(a) - order(b) || a.y - b.y || a.number - b.number,
+      (a, b) =>
+        a.priority - b.priority ||
+        order(a) - order(b) ||
+        row(a) - row(b) ||
+        a.number - b.number,
     );
+}
+
+/** The default AGI row used to sort a sprite pinned to a priority band. */
+function prioritySortRow(priority: number): number {
+  return (priority - 5) * 12 + 48;
 }
 
 /**

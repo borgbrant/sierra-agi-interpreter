@@ -13,12 +13,15 @@
  * All three are read along the object's *base line* -- the row of pixels its
  * feet occupy -- because that is the ground it is standing on. Reading the
  * whole sprite would have a character's head blocked by a wall it is standing
- * in front of.
+ * in front of. Transparent margins are still part of the base line for
+ * obstacles, but not for deciding whether ego's visible feet are on water.
  *
  * A refused step is undone, not clamped: the object stays exactly where it was.
  * Clamping would slide a character along a wall it walked into diagonally,
  * which the original does not do.
  */
+import { celPixelsForLoop, TRANSPARENT } from 'agi-extract/view';
+
 import { CONTROL, PICTURE_HEIGHT, PICTURE_WIDTH, Screens } from '../render/screens.ts';
 import type { Machine } from './machine.ts';
 import { FLAG, VAR } from './state.ts';
@@ -99,7 +102,7 @@ export function insideBlock(block: Block, x: number, y: number): boolean {
 export interface Footing {
   /** Whether the object may stand there at all. */
   allowed: boolean;
-  /** Every pixel of the base line is water. */
+  /** Every visible foot pixel of the base line is water. */
   water: boolean;
   /** Some pixel of the base line is a trigger line. */
   signal: boolean;
@@ -117,12 +120,10 @@ export function checkFooting(screens: Screens, object: ViewObject, priority: num
   // is not standing on the scene at all, so terrain does not apply to it.
   if (priority === 15) return { allowed: true, water: false, signal: false };
 
-  const width = Math.max(1, object.width);
-  let water = true;
   let signal = false;
 
-  for (let i = 0; i < width; i++) {
-    const x = object.x + i;
+  for (let column = 0; column < Math.max(1, object.width); column++) {
+    const x = object.x + column;
     if (x < 0 || x >= PICTURE_WIDTH) continue;
 
     const control = screens.priority[Screens.index(x, object.y)]!;
@@ -131,21 +132,42 @@ export function checkFooting(screens: Screens, object: ViewObject, priority: num
       return { allowed: false, water: false, signal: false };
     }
 
-    // Water is the only value that leaves the base line still "all water".
-    if (control === CONTROL.WATER) continue;
-    water = false;
-
     if (control === CONTROL.CONDITIONAL_OBSTACLE && !object.ignoresBlocks) {
       return { allowed: false, water: false, signal: false };
     }
     if (control === CONTROL.ALARM) signal = true;
   }
 
+  const water = footingColumns(object).every((column) => {
+    const x = object.x + column;
+    if (x < 0 || x >= PICTURE_WIDTH) return true;
+    return screens.priority[Screens.index(x, object.y)] === CONTROL.WATER;
+  });
+
   // An object confined to one surface may not step off it.
   if (object.onWater && !water) return { allowed: false, water, signal };
   if (object.onLand && water) return { allowed: false, water, signal };
 
   return { allowed: true, water, signal };
+}
+
+/** The visible columns of the object's bottom row, falling back to its box. */
+function footingColumns(object: ViewObject): number[] {
+  const cel = object.currentCel;
+  const width = Math.max(1, object.width);
+  if (!cel || cel.width <= 0 || cel.height <= 0) {
+    return Array.from({ length: width }, (_, column) => column);
+  }
+
+  const pixels = celPixelsForLoop(cel as never, object.loop) as Uint8Array;
+  const row = (cel.height - 1) * cel.width;
+  const columns: number[] = [];
+
+  for (let column = 0; column < cel.width; column++) {
+    if (pixels[row + column] !== TRANSPARENT) columns.push(column);
+  }
+
+  return columns.length > 0 ? columns : Array.from({ length: width }, (_, column) => column);
 }
 
 /**
@@ -165,22 +187,26 @@ export function fitsOnScreen(object: ViewObject, horizon: number): boolean {
 /**
  * Whether an object would land on another one.
  *
- * Two objects collide when their horizontal spans overlap and one has crossed
- * the other's base row this cycle -- so a character can walk *behind* another
- * without being stopped, and is only blocked when they would end up standing in
- * the same place.
+ * An object that ignores other objects may pass through them. Other objects'
+ * own ignore flags do not make them intangible while they are standing still:
+ * Lefty's jukebox is a stopped object with `ignore.objs`, but ego should still
+ * hit it. Two objects collide when their horizontal spans overlap and the mover
+ * lands on or crosses the other's current base row this cycle.
  */
 export function collides(table: ViewTable, object: ViewObject): boolean {
   if (object.ignoresObjects) return false;
 
   for (const other of table.visible()) {
-    if (other === object || other.ignoresObjects) continue;
-    if (object.x + object.width < other.x) continue;
-    if (object.x > other.x + other.width) continue;
+    if (other === object) continue;
 
-    if (object.y === other.y) return true;
-    if (object.y > other.y && object.previousY < other.previousY) return true;
-    if (object.y < other.y && object.previousY > other.previousY) return true;
+    const objectRight = object.x + Math.max(1, object.width);
+    const otherRight = other.x + Math.max(1, other.width);
+    if (objectRight <= other.x) continue;
+    if (object.x >= otherRight) continue;
+
+    const from = Math.min(object.previousY, object.y);
+    const to = Math.max(object.previousY, object.y);
+    if (other.y >= from && other.y <= to) return true;
   }
 
   return false;

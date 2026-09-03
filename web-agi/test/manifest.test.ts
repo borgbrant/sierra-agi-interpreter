@@ -33,8 +33,8 @@ test('the manifest lists every file the engine reads', () => {
 
 test('the manifest lists nothing the engine does not read', () => {
   // The DOS executables and the CGA/Hercules overlays are deliberately not
-  // copied; shipping them would serve bytes the engine never opens.
-  const allowed = /^(LOGDIR|PICDIR|VIEWDIR|SNDDIR|OBJECT|WORDS\.TOK|VOL\.\d+)$/;
+  // copied; HGC_FONT is listed because the Hercules driver uses it when present.
+  const allowed = /^(LOGDIR|PICDIR|VIEWDIR|SNDDIR|OBJECT|WORDS\.TOK|HGC_FONT|VOL\.\d+)$/;
   for (const name of names) assert.match(name, allowed);
 });
 

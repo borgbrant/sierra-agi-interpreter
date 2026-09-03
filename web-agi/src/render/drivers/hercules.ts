@@ -189,6 +189,9 @@ export const HERCULES_FALLBACK_CELL: CellMetrics = {
   glyph,
 };
 
+/** The default Hercules cell, kept under the original test-facing name. */
+export const HERCULES_CELL = HERCULES_FALLBACK_CELL;
+
 /** The cell as drawn with the font file: one glyph bit per pixel. */
 export function herculesCell(font: HgcFont | undefined): CellMetrics {
   if (!font) return HERCULES_FALLBACK_CELL;

@@ -6,49 +6,119 @@
  * difference between diagnosing a bug and guessing at it.
  */
 import type { Cycle } from '../engine/cycle.ts';
+import type { Key } from '../engine/interaction.ts';
 import type { Machine } from '../engine/machine.ts';
 import { FLAG, VAR } from '../engine/state.ts';
+import { keyFromEvent } from '../input/keyboard.ts';
 import { disassemble } from '../logic/disasm.ts';
 import type { ViewObject } from '../engine/viewtable.ts';
-import type { Renderer } from '../render/renderer.ts';
 
 /**
- * The key that switches views.
- *
- * A function key rather than a letter: every letter now goes to the game's
- * command line, and a debug toggle that also types is worse than useless.
+ * Developer shortcuts are active only while the developer panel is open.
+ * Buttons are the primary path; these exist for repeated debugging and are
+ * checked against the game's own key bindings before the shell claims them.
  */
-export const DEBUG_KEY = 'F7';
+export type DebugAction = 'priority' | 'state' | 'disassembly';
+
+export interface DebugKeyEvent {
+  readonly key: string;
+  readonly code: string;
+  readonly altKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly metaKey: boolean;
+  readonly shiftKey: boolean;
+}
+
+const DEBUG_SHORTCUTS: { action: DebugAction; code: string; label: string; button: string }[] = [
+  { action: 'priority', code: 'KeyP', label: 'Alt+Shift+P', button: 'Priority screen' },
+  { action: 'state', code: 'KeyS', label: 'Alt+Shift+S', button: 'State dump' },
+  { action: 'disassembly', code: 'KeyD', label: 'Alt+Shift+D', button: 'Disassemble room' },
+];
+
+export interface DebugActions {
+  togglePriority: () => void;
+  showState: () => void;
+  showDisassembly: () => void;
+}
 
 export interface DebugKeysOptions {
-  renderer: Renderer;
-  /** Called after a toggle, to repaint. */
-  onChange: () => void;
-  /** Called with a line describing what changed. */
-  onStatus?: (text: string) => void;
+  actions: DebugActions;
+  /** Debug shortcuts are only live after the developer panel has been opened. */
+  isEnabled: () => boolean;
+  /** Whether the game has already claimed the key this browser event represents. */
+  gameClaimsKey: (key: Key) => boolean;
 }
 
 /**
- * Bind the debug keys.
+ * Developer buttons. They live behind the panel gesture, so none of them is
+ * part of the player's normal surface.
+ */
+export function createDebugTools(parent: HTMLElement, actions: DebugActions): void {
+  for (const shortcut of DEBUG_SHORTCUTS) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = shortcut.button;
+    button.title = shortcut.label;
+    button.addEventListener('click', () => {
+      runDebugAction(shortcut.action, actions);
+      button.blur();
+    });
+    parent.append(button);
+  }
+}
+
+/**
+ * Bind optional debug shortcuts.
  *
  * @returns a function that unbinds them
  */
-export function bindDebugKeys({ renderer, onChange, onStatus }: DebugKeysOptions): () => void {
+export function bindDebugKeys({ actions, isEnabled, gameClaimsKey }: DebugKeysOptions): () => void {
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key !== DEBUG_KEY) return;
-    event.preventDefault();
+    if (!isEnabled()) return;
 
-    const view = renderer.toggleView();
-    onChange();
-    onStatus?.(view === 'priority' ? 'showing the priority screen' : 'showing the visual screen');
+    const action = debugActionForEvent(event, gameClaimsKey);
+    if (!action) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    runDebugAction(action, actions);
   };
 
   window.addEventListener('keydown', onKeyDown);
   return () => window.removeEventListener('keydown', onKeyDown);
 }
 
-/** The key that dumps the engine's state. */
-export const STATE_KEY = 'F8';
+/**
+ * Which debug action a browser event asks for, if any.
+ *
+ * Exported so the no-shadowing rule can be tested without a browser.
+ */
+export function debugActionForEvent(
+  event: DebugKeyEvent,
+  gameClaimsKey: (key: Key) => boolean,
+): DebugAction | null {
+  if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey) return null;
+
+  const shortcut = DEBUG_SHORTCUTS.find((candidate) => candidate.code === event.code);
+  if (!shortcut) return null;
+
+  if (gameClaimsKey(keyFromEvent(event as KeyboardEvent))) return null;
+  return shortcut.action;
+}
+
+function runDebugAction(action: DebugAction, actions: DebugActions): void {
+  switch (action) {
+    case 'priority':
+      actions.togglePriority();
+      return;
+    case 'state':
+      actions.showState();
+      return;
+    case 'disassembly':
+      actions.showDisassembly();
+      return;
+  }
+}
 
 /**
  * Everything about the engine's state that has ever mattered when a game got
@@ -141,9 +211,6 @@ function describeObject(object: ViewObject): string {
 
 const CYCLE_NAMES = ['normal', 'end-of-loop', 'reverse-loop', 'reverse'] as const;
 const MOTION_NAMES = ['normal', 'wander', 'follow-ego', 'move-to'] as const;
-
-/** The key that disassembles the room's script. */
-export const DISASM_KEY = 'F9';
 
 /**
  * The current room's script, as readable text.

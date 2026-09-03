@@ -138,7 +138,7 @@ test('ignoring blocks passes the conditional obstacle and nothing else', () => {
   assert.equal(checkFooting(m.background, object, object.priority).allowed, false);
 });
 
-test('a trigger line is reported without blocking, and water only when the whole base is wet', () => {
+test('a trigger line is reported without blocking, and water only when the visible base is wet', () => {
   const m = walkable();
   const object = standing(m, 1, 20, 100);
 
@@ -152,6 +152,59 @@ test('a trigger line is reported without blocking, and water only when the whole
     m.background.priority[Screens.index(20 + i, 100)] = CONTROL.WATER;
   }
   assert.equal(checkFooting(m.background, object, object.priority).water, true);
+});
+
+test('transparent base-line margins do not decide which surface an object is on', () => {
+  const m = walkable();
+  const view = blockView(5, 2, 1);
+  view.loops[0]!.cels[0]!.pixels = Uint8Array.of(
+    1,
+    1,
+    1,
+    1,
+    1,
+    TRANSPARENT,
+    1,
+    1,
+    1,
+    TRANSPARENT,
+  );
+  const object = standing(m, 1, 20, 100, view);
+
+  for (let column = 1; column <= 3; column++) {
+    m.background.priority[Screens.index(20 + column, 100)] = CONTROL.WATER;
+  }
+
+  assert.equal(
+    checkFooting(m.background, object, object.priority).water,
+    true,
+    'transparent columns at the edges are not dry feet',
+  );
+});
+
+test('transparent base-line margins still observe obstacle lines', () => {
+  const m = walkable();
+  const view = blockView(5, 2, 1);
+  view.loops[0]!.cels[0]!.pixels = Uint8Array.of(
+    1,
+    1,
+    1,
+    1,
+    1,
+    TRANSPARENT,
+    1,
+    1,
+    1,
+    TRANSPARENT,
+  );
+  const object = standing(m, 1, 20, 100, view);
+  m.background.priority[Screens.index(20, 100)] = CONTROL.CONDITIONAL_OBSTACLE;
+
+  assert.equal(
+    checkFooting(m.background, object, object.priority).allowed,
+    false,
+    'collision lines use the whole base width, not only visible foot pixels',
+  );
 });
 
 test('an object confined to one surface may not step off it', () => {
@@ -292,15 +345,36 @@ test('ego reports the ground it is standing on through its flags', () => {
   assert.equal(m.state.getFlag(FLAG.EGO_TOUCHED_SIGNAL), true);
 });
 
-test('objects that observe each other cannot stand in the same place', () => {
+test('an object that observes other objects cannot stand in the same place as one', () => {
   const m = walkable();
   const mover = standing(m, 0, 20, 100);
-  standing(m, 1, 24, 100);
+  standing(m, 1, 23, 100);
 
   assert.equal(collides(m.viewTable, mover), true);
 
   mover.ignoresObjects = true;
-  assert.equal(collides(m.viewTable, mover), false, 'until one of them ignores objects');
+  assert.equal(collides(m.viewTable, mover), false, 'until the mover ignores objects');
+});
+
+test('an object that ignores collisions still blocks another object that observes them', () => {
+  const m = walkable();
+  const mover = standing(m, 0, 20, 100);
+  const obstacle = standing(m, 1, 23, 100);
+  obstacle.ignoresObjects = true;
+
+  assert.equal(collides(m.viewTable, mover), true);
+});
+
+test('a moving object collides with a stopped object at its current base row', () => {
+  const m = walkable();
+  const mover = standing(m, 0, 20, 96);
+  const obstacle = standing(m, 1, 20, 100);
+  obstacle.update = false;
+  obstacle.previousY = 0;
+
+  mover.y = 102;
+
+  assert.equal(collides(m.viewTable, mover), true);
 });
 
 test('an object is only outside the screen when it does not fit', () => {
@@ -591,6 +665,23 @@ test('a moving object walks in front of standing furniture at the same depth', (
   drawObjects(m);
 
   assert.equal(m.screens.colourAt(20, 99), 1, 'the one that moves is drawn last');
+});
+
+test('a fixed-priority moving prop sorts by its priority band, not its base row', () => {
+  // Lefty's jukebox switches to updating while it plays. It is still pinned to
+  // priority 11, whose sort row is 120; using the prop's real y=128 makes it
+  // draw over Larry in places where Larry is already in front of that band.
+  const m = walkable();
+  const ego = standing(m, 0, 20, 126, blockView(8, 8, 1));
+  const prop = standing(m, 1, 20, 128, blockView(8, 8, 2));
+
+  ego.priority = 11;
+  prop.priority = 11;
+  prop.fixedPriority = true;
+
+  drawObjects(m);
+
+  assert.equal(m.screens.colourAt(20, 126), 1);
 });
 
 test('a nearer object still wins between two that both move', () => {

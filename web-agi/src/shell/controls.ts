@@ -81,7 +81,7 @@ export class Controls {
     );
 
     parent.append(
-      this.#select('Sound', SOUND_CHIPS, options.settings.sound, (value) => {
+      this.#select('Sound chip', SOUND_CHIPS, options.settings.sound, (value) => {
         options.settings.sound = value;
         options.onChange(options.settings);
         options.say(
@@ -113,7 +113,7 @@ export class Controls {
    * remembering what was last pressed here.
    */
   refresh(): void {
-    this.#soundButton.textContent = this.#options.isSoundOn() ? 'Sound: on' : 'Sound: off';
+    this.#soundButton.textContent = this.#options.isSoundOn() ? 'Sound on' : 'Sound off';
   }
 
   #select<T extends string>(

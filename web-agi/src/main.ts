@@ -20,10 +20,9 @@ import { Controls } from './shell/controls.ts';
 import { loadSettings, saveSettings } from './shell/settings.ts';
 import {
   bindDebugKeys,
+  createDebugTools,
   describeCurrentLogic,
   describeState,
-  DISASM_KEY,
-  STATE_KEY,
 } from './shell/debug.ts';
 import { mountShell } from './shell/shell.ts';
 
@@ -33,7 +32,7 @@ if (!root) throw new Error('missing #app element');
 const shell = mountShell(root);
 
 try {
-  shell.log('loading game files...');
+  shell.setStatus('loading game files...');
 
   const source = await BundledSource.load();
   const resources = await ResourceManager.open(source);
@@ -75,17 +74,8 @@ try {
 
   const canvas = new CanvasView(shell.stage);
 
-  /**
-   * Say something to the player, and let them read it.
-   *
-   * The status line otherwise reports where the game is twice a second, which
-   * would wipe a message before anyone could see it.
-   */
-  let statusHeldUntil = 0;
-  const say = (text: string) => {
-    shell.setStatus(text);
-    statusHeldUntil = Date.now() + 4000;
-  };
+  /** Say what the shell just did, without overwriting it with engine telemetry. */
+  const say = (text: string) => shell.setStatus(text);
 
   /**
    * What the player has chosen, as opposed to what the game asks for.
@@ -105,7 +95,7 @@ try {
   // drawn on the adapter the player chose rather than on EGA and then swapped.
   const renderer = new Renderer(settings.graphics, { herculesFont });
 
-  const controls = new Controls(shell.tools, {
+  const controls = new Controls(shell.settingsTools, {
     settings,
     onChange: (chosen) => {
       machine.setDisplayMode(chosen.graphics);
@@ -134,40 +124,68 @@ try {
     controls.refresh();
   };
 
-  bindDebugKeys({ renderer, onChange: paint, onStatus: say });
-  bindKeyboard((key) => {
-    // The state dump is bound here rather than with the view toggle because it
-    // has to see the cycle as well as the machine.
-    if (key.name === STATE_KEY) {
+  const describeEngineStatus = () => {
+    const pending = [...machine.stubs].sort((a, b) => b[1] - a[1]);
+    const ego = machine.viewTable.ego;
+    const again = cycle.reentries > 1 ? ` (entered ${cycle.reentries}x)` : '';
+    return (
+      `room ${machine.state.getVar(VAR.CURRENT_ROOM)}${again}, cycle ${cycle.count}, ` +
+      `ego ${ego.x},${ego.y} pri ${ego.priority}` +
+      (pending.length > 0 ? ` — ${pending.length} commands not yet implemented` : '')
+    );
+  };
+
+  const refreshDeveloperStatus = () => shell.setDeveloperStatus(describeEngineStatus());
+
+  const debugActions = {
+    togglePriority: () => {
+      const view = renderer.toggleView();
+      paint();
+      refreshDeveloperStatus();
+      say(view === 'priority' ? 'developer: showing the priority screen' : 'developer: showing the visual screen');
+    },
+    showState: () => {
       shell.setLog([
         `--- engine state, ${new Date().toLocaleTimeString()} ---`,
         ...describeState(machine, cycle),
       ]);
-      return true;
-    }
-
-    if (key.name === DISASM_KEY) {
+      refreshDeveloperStatus();
+    },
+    showDisassembly: () => {
       shell.setLog(describeCurrentLogic(machine));
-      return true;
-    }
+      refreshDeveloperStatus();
+    },
+  };
 
+  createDebugTools(shell.debugTools, debugActions);
+  shell.onDeveloperToggle(() => {
+    if (shell.developerOpen) refreshDeveloperStatus();
+  });
+
+  bindDebugKeys({
+    actions: debugActions,
+    isEnabled: () => shell.developerOpen,
+    gameClaimsKey: (key) => machine.keyBindings.controllerFor(key) !== undefined,
+  });
+
+  bindKeyboard((key) => {
     const claimed = machine.handleKey(key);
     paint();
     return claimed;
   });
 
+  shell.setHelp([
+    'Arrow keys or keypad move. Type commands and press Enter.',
+    'Esc opens menus. Tab opens inventory. F2 toggles sound.',
+    storage
+      ? 'F5 saves. F7 restores. Export and Import keep saves in a file.'
+      : 'This browser will not let the game save or restore.',
+    'The game menus list the rest of its shortcuts.',
+  ]);
   shell.setLog([
     ...formatSummary(summary),
     '',
-    'arrow keys walk ego; type commands and press ENTER',
-    'ESC opens the menu, TAB the inventory, and the game\'s own shortcuts work',
-    '(Ctrl-B, Alt-Z, F1-F10 and the rest, as its menus advertise)',
-    'sound starts off: press F2 or the Sound button to switch it on',
-    storage
-      ? 'F5 saves the game and F7 restores it, as the game\'s own menus say'
-      : 'this browser will not let the game save; F5 and F7 will say so',
-    'F7 toggles the priority screen, F8 dumps the engine state below,',
-    'F9 disassembles the current room\'s script',
+    'Developer tools: open this panel, or use Alt+Shift+P/S/D while it is open.',
   ]);
 
   /**
@@ -182,7 +200,11 @@ try {
     const pending = [...machine.stubs].sort((a, b) => b[1] - a[1]).map(([name]) => name);
     const room = machine.state.getVar(VAR.CURRENT_ROOM);
 
-    shell.setStatus(`the game quit, in room ${room}`);
+    shell.setStatus(`the game stopped in room ${room}`);
+    shell.setHelp([
+      'The game script stopped the interpreter.',
+      'Reload the page to start again.',
+    ]);
     shell.setLog([
       `The game asked to stop, in room ${room}, after ${cycle.count} cycles.`,
       '',
@@ -210,12 +232,16 @@ try {
     // The game keeps the keyboard: a button left focused would swallow the
     // next keypress instead of walking ego.
     button.addEventListener('click', () => button.blur());
-    shell.tools.append(button);
+    shell.saveTools.append(button);
   };
 
   addTool('Export saves', () => {
     const saves = machine.saves;
-    if (!saves || saves.list().length === 0) {
+    if (!saves?.available) {
+      say('this browser will not let the game save or export saves');
+      return;
+    }
+    if (saves.list().length === 0) {
       say('there are no saved games to export');
       return;
     }
@@ -231,6 +257,11 @@ try {
   });
 
   addTool('Import saves', () => {
+    if (!machine.saves?.available) {
+      say('this browser will not let the game import saves');
+      return;
+    }
+
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'application/json,.json';
@@ -294,28 +325,14 @@ try {
   paint();
   requestAnimationFrame(frame);
 
-  // Report where the game is and what it reached that the engine cannot do yet.
+  // Report where the game is only on the developer surface.
   const status = window.setInterval(() => {
     if (machine.stopped) {
       window.clearInterval(status);
       return;
     }
 
-    // Whatever was said last stays up long enough to be read.
-    if (Date.now() < statusHeldUntil) return;
-
-    const pending = [...machine.stubs].sort((a, b) => b[1] - a[1]);
-    const ego = machine.viewTable.ego;
-    // The re-entry count is shown because a room that keeps setting itself up
-    // is what a looping animation looks like from the inside, and it is the
-    // one thing about a stuck game that is worth being able to read off the
-    // screen rather than guess at.
-    const again = cycle.reentries > 1 ? ` (entered ${cycle.reentries}x)` : '';
-    shell.setStatus(
-      `room ${machine.state.getVar(VAR.CURRENT_ROOM)}${again}, cycle ${cycle.count}, ` +
-        `ego ${ego.x},${ego.y} pri ${ego.priority}` +
-        (pending.length > 0 ? ` — ${pending.length} commands not yet implemented` : ''),
-    );
+    if (shell.developerOpen) refreshDeveloperStatus();
   }, 500);
 } catch (cause) {
   shell.showError('Could not start the game', cause);

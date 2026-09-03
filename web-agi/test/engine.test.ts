@@ -10,7 +10,7 @@ import { FLAG, GameState, LAST_RESERVED_FLAG, LAST_RESERVED_VAR, VAR } from '../
 import { KeyPress, MessageWindow } from '../src/engine/interaction.ts';
 import { TextLayer } from '../src/render/text.ts';
 import { DIRECTION, MOTION } from '../src/engine/viewtable.ts';
-import { WHITE } from '../src/render/screens.ts';
+import { CONTROL, Screens, WHITE } from '../src/render/screens.ts';
 import { keyNamed } from '../src/input/keyboard.ts';
 import { ResourceManager } from '../src/resources/manager.ts';
 import { parseObjectFile } from '../src/resources/objects.ts';
@@ -162,6 +162,60 @@ test('flag commands set, reset and toggle', () => {
   assert.equal(m.state.getFlag(30), false);
   handlers[0x0d]!(m, [30]);
   assert.equal(m.state.getFlag(30), false);
+});
+
+test('terrain flags are refreshed when a script tests them', () => {
+  const bytecode = Uint8Array.of(
+    0x0e,
+    FLAG.EGO_ON_WATER, // reset(0), as logic 0 does before room logic
+    0xff,
+    0x07,
+    FLAG.EGO_ON_WATER,
+    0xff,
+    0x02,
+    0x00, // if (isset(0)); skip set(30) when false
+    0x0c,
+    30, // set(30)
+    0x00,
+  );
+  const payload = Uint8Array.of(bytecode.length, 0, ...bytecode, 0, 0, 0);
+  const resources = {
+    loadSync: () => payload,
+    isPresent: () => true,
+  } as unknown as ResourceManager;
+
+  const m = new Machine({ resources, objects });
+  m.setHandlers(buildHandlers());
+  m.background.priority.fill(7);
+  const ego = m.viewTable.ego;
+  ego.setView(1, {
+    loops: [
+      {
+        loop: 0,
+        cels: [
+          {
+            width: 2,
+            height: 1,
+            transparent: 0,
+            mirrored: false,
+            sourceLoop: 0,
+            pixels: Uint8Array.of(1, 1),
+          },
+        ],
+      },
+    ],
+    description: null,
+  });
+  ego.x = 20;
+  ego.y = 100;
+  ego.priority = 7;
+  m.background.priority[Screens.index(20, 100)] = CONTROL.WATER;
+  m.background.priority[Screens.index(21, 100)] = CONTROL.WATER;
+
+  m.execute(0);
+
+  assert.equal(m.state.getFlag(30), true);
+  assert.equal(m.state.getFlag(FLAG.EGO_ON_WATER), true);
 });
 
 test('unimplemented commands are counted rather than fatal', () => {

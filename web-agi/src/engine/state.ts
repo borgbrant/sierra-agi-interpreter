@@ -85,7 +85,7 @@ export const LAST_RESERVED_VAR = VAR.MONITOR_TYPE;
 
 /** Flags the interpreter reserves for itself. */
 export const FLAG = {
-  /** Ego's base line stands entirely on water. */
+  /** Ego's visible foot line stands entirely on water. */
   EGO_ON_WATER: 0,
   /** Ego is completely hidden behind something. */
   EGO_OBSCURED: 1,
