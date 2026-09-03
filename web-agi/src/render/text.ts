@@ -46,6 +46,18 @@ export interface CellMetrics {
 /** The 8x8 IBM font in an 8x8 cell: what EGA and CGA draw. */
 export const IBM_CELL: CellMetrics = { width: CHAR_WIDTH, height: CHAR_HEIGHT, glyph };
 
+/**
+ * How a driver turns the game's ink and ground into the colours it has.
+ *
+ * A pair rather than two calls, because the interesting case is the pair: a
+ * driver with four colours can map two different colours onto one, and ink that
+ * matches its ground is not an approximation but text that is not there.
+ * Everywhere else the driver has the two numbers already and maps them itself;
+ * this exists because {@link TextLayer} holds its colours per cell, out of the
+ * driver's reach.
+ */
+export type ColourPair = (foreground: number, background: number) => [number, number];
+
 
 /**
  * How wide a message window's text may be.
@@ -417,22 +429,22 @@ export class TextLayer {
     this.chars.fill(0);
   }
 
-  /** Draw every written cell onto a driver's framebuffer. */
-  draw(display: Display, metrics: CellMetrics = IBM_CELL): void {
+  /**
+   * Draw every written cell onto a driver's framebuffer.
+   *
+   * @param colours how the driver maps sixteen colours to its own, if it must
+   */
+  draw(display: Display, metrics: CellMetrics = IBM_CELL, colours?: ColourPair): void {
     for (let row = 0; row < ROWS; row++) {
       for (let column = 0; column < COLUMNS; column++) {
         const cell = TextLayer.index(column, row);
         const code = this.chars[cell]!;
         if (code === 0) continue;
-        drawChar(
-          display,
-          code,
-          column,
-          row,
-          this.foreground[cell]!,
-          this.background[cell]!,
-          metrics,
-        );
+
+        const [ink, ground] = colours
+          ? colours(this.foreground[cell]!, this.background[cell]!)
+          : [this.foreground[cell]!, this.background[cell]!];
+        drawChar(display, code, column, row, ink, ground, metrics);
       }
     }
   }

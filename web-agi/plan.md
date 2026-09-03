@@ -3,7 +3,7 @@
 Companion to [spec.md](spec.md). The spec says *what* to build; this says in what
 order, in which files, and how each step is proven to work.
 
-> **M0-M11 are done and shipped. M12-M13 are specified and not started.** The
+> **M0-M12 are done and shipped. M13 is specified and not started.** The
 > milestones are kept as they were written, for the reasoning behind the
 > sequencing and for the format measurements in the next section. They are not a
 > description of the code as built: several modules ended up named or split
@@ -24,7 +24,7 @@ M8  Save and restore          complete
 M9  The sound chip switch     complete
 M10 The display driver seam   complete
 M11 What the scripts see      complete
-M12 CGA                       not started
+M12 CGA                       complete
 M13 Hercules                  not started
 ```
 
@@ -1071,7 +1071,7 @@ is what a player would notice, and what a wrong answer would actually break.
 
 ---
 
-## M12 — CGA — not started
+## M12 — CGA — complete
 
 Four colours, and the sixteen the game draws in reached by dithering pairs of
 pixels. Almost pure rendering: M11 found the one script-visible difference CGA
@@ -1086,11 +1086,160 @@ than by comparing against a table nobody here can consult.
 
 ```text
 src/render/drivers/cga.ts   four colours, and the dither that reaches 16
+src/render/text.ts          TextLayer.draw learns how a driver maps colours
 ```
 
 **Done when:** every picture in the game renders in CGA through its own driver,
 the dither holds together at the scale the canvas presents it, and EGA is
 untouched.
+
+### The dither is free, which is why AGI could offer this mode at all
+
+An AGI pixel is twice as wide as it is tall, so the EGA driver spends its
+320-pixel width *duplicating* each of the picture's 160 pixels. CGA spends the
+same two pixels on colour instead: a pair drawn from four colours, blending at
+the size the canvas presents it. Nothing is given up to make room for it, and no
+picture had to be redrawn -- which is the answer to why a 1987 game could ship
+four adapters off one set of resources.
+
+The arithmetic is where the milestone's whole difficulty lives. Two colours from
+four is **ten** distinct blends, not sixteen: `(a,b)` and `(b,a)` are the same
+colour whatever order they are drawn in. So six of AGI's sixteen must share an
+appearance with another, and the only question is which six.
+
+### Grounding: how little slack there is
+
+Measured before deriving anything -- 43 pictures, 1,155,840 pixels, and the
+277,937 places where two colours meet:
+
+```text
+every one of the 16 colours is drawn         so no collision is free
+110 of the 120 colour pairs are drawn        so almost every collision costs
+  adjacent somewhere in the game               a boundary the artist drew
+the 10 pairs that never touch all involve    dark grey is the only colour
+  colour 8, dark grey                          with any slack at all
+```
+
+### Which palette, and a result that contradicts the obvious guess
+
+CGA's 320x200 mode offers two palettes in two intensities. All four were scored
+against the colours this game actually draws, weighted by how many pixels of
+each it draws:
+
+```text
+palette                             colour error   boundaries lost
+1 low    black/cyan/magenta/grey          113.2M              4.3%
+1 high   black/lcyan/lmagenta/white       117.4M             13.8%
+0 high   black/lgreen/lred/yellow         129.7M             13.1%
+0 low    black/green/red/brown            203.2M             19.7%
+```
+
+**Palette 1 at low intensity wins on both counts at once**, and the bright
+cyan-and-magenta everybody remembers from Sierra CGA screenshots comes second by
+a wide margin. The reason is worth keeping: with every non-black entry bright,
+dark red lands nearer to *black* than to anything else, so colour 4 collapses
+into colour 0 -- the second most common boundary in the game, 29,800 pixels of
+it. Low intensity has dark and mid tones among its blends, and half of AGI's
+palette is its dark half.
+
+### What a metric could not settle
+
+Three mappings were built, and the two a metric recommends are the two that
+look worst:
+
+```text
+mapping                    boundaries lost   what it does to the opening
+nearest match, light
+  green moved                        4.08%   all three objects survive
+nearest match                        4.25%   light green and light cyan
+                                             collapse: the green pennant
+                                             disappears into the sky
+fewest collisions (no blend          3.26%   yellow is forced off the bright
+  used more than twice)                      blend onto light cyan's: the
+                                             notepad the scene is *about*
+                                             vanishes into the sky
+```
+
+That is the finding to carry into M13. **A boundary count undervalues the
+outline of a large region.** An object's edge is its perimeter -- a few hundred
+pixels -- while the object is its area, so a metric summing edges will trade
+away the one boundary that makes a shape a shape. The 489 pixels where yellow
+meets light cyan *are* the outline of the notepad, and a search that saw them as
+489 pixels threw the notepad away to save 2,000 elsewhere.
+
+So the table is nearest match with one entry moved, and the move was decided by
+rendering the game's own pictures and looking at them -- which is exactly the
+mitigation this plan wrote down for these four milestones, used in earnest for
+the first time. Light green goes to its second-nearest blend, 3.9% of the
+black-to-white range further off, and hands back the pennant.
+
+Black and white turned out not to need pinning: nearest match already puts them
+on the darkest and brightest blends. That is worth knowing because the
+fewest-collisions search *did* need it -- left free it put white on a mid
+cyan-grey and light grey on the bright blend, inverting the two.
+
+### The one loss that cannot be recovered
+
+Three quarters of everything CGA gives up is a single group: light grey, yellow
+and white on the brightest blend, 8,328 boundary pixels. Colour 7 is *exactly*
+170,170,170, which is the brightest blend there is, and white has nowhere
+brighter to go. No rearrangement helps -- a palette whose brightest colour is
+light grey cannot show a highlight on light grey.
+
+### Text is not dithered, and that took a rule of its own
+
+A character cell is eight pixels wide and a glyph's stroke is one or two of
+them, so a dithered stroke is a stroke with holes in it: the letter stops being
+a letter. Text is drawn solid, ink and ground both, from a second and smaller
+table -- and the line the driver draws is that **pictures are dithered and text
+furniture is solid**, which puts `fill` and `rows` on the solid side with the
+text and leaves `picture` and `cel` on the dithered side.
+
+That second table needed one rule beyond nearest match, and the game supplied
+the reason. Taken as pure nearest match, red, brown and dark grey all land on
+black -- and the bundled game sets `set.text.attribute(6, 0)`, brown on black,
+in five places. Black ink on a black ground is not an approximation of a
+colour, it is a line of text that is not there. **Only colour 0 may become
+black**, and with that rule every attribute pair the game sets stays legible,
+the closest being brown on light grey.
+
+One seam change fell out of this: `TextLayer.draw` now takes an optional
+`ColourPair` saying how a driver maps sixteen colours to its own. Everywhere
+else the driver has the two numbers in hand and maps them itself; the text plane
+holds its colours per cell, out of the driver's reach. It is a pair rather than
+two calls because the interesting case is the pair -- a driver with four colours
+can map two different colours onto one, and there is a fallback that pushes the
+ink somewhere visible when it would otherwise land on its own ground. The
+bundled game never needs it; a game with cyan text on a light cyan ground would.
+
+### What the tests found
+
+Nothing in the engine, and that is the expected result for a milestone that
+adds a driver rather than changing one. The 323 tests before it were untouched
+and stayed green, EGA included.
+
+The fourteen added do not try to say the mapping is *right*, because no test
+can. They say what it is and what it costs, and they recompute the cost from
+the game's own pictures rather than trusting a comment:
+
+```text
+sixteen colours reach ten appearances, which is all there are
+the game draws every colour, so none is free to collide
+the recorded collisions are the collisions the table has
+each collision costs what it is recorded as costing
+brown and dark grey are the one collision the game never notices
+only black is drawn as black, or text goes missing
+ink never lands on its own ground
+the attribute pairs the bundled game sets are all legible
+a CGA frame holds nothing but the four colours it has
+the dither is a checkerboard, not a set of stripes
+CGA leaves EGA alone
+```
+
+The third and fourth are the ones with teeth. Changing an entry in the table
+now fails a test that names the boundary count it changed, so the next person to
+adjust it has to say what they are trading and what for -- which is the only
+defence a mode nobody can check against real hardware has.
 
 ---
 
@@ -1100,6 +1249,14 @@ The mode that moves everything at once, and the reason the seam of M10 carries
 size and font: 720x348, two colours, an 8x12 font of its own, and its own object
 drawing in `HGC_OBJS.OVL`. Its layout arrived in M11, which is what makes this
 milestone only about pixels.
+
+Two things carry over from M12. The dither method is the same and the arithmetic
+is harsher: two colours give **three** blends over a pair of pixels, for sixteen
+colours, so this mode has more room to spare vertically than horizontally --
+720x348 against a 160x168 picture is four and a half pixels wide by two tall,
+which is a 2x2 or 2x4 cell rather than a pair. And the metric lesson holds: a
+boundary count will happily hide an object, so the mapping is judged by
+rendering the game's pictures and looking at them.
 
 ```text
 src/render/drivers/hercules.ts   two colours, 720x348, its own cell
@@ -1121,6 +1278,13 @@ wrong-looking passes every test a test can be. Two mitigations, and they are the
 ones the project has used since M2: render the game's own pictures in each mode
 and look at them, and keep the EGA golden tests green so that a mode nobody can
 check cannot quietly disturb the one mode that is known to be right.
+
+M12 used both, and the first of them earned its place: looking at the pictures
+is what caught two mappings that a metric preferred and that each hid a whole
+object. A third mitigation came out of that and is worth stating for M13 --
+**record what the mapping costs, measured, next to the mapping**, and have a
+test recompute it. It does not say the mapping is right. It makes changing it a
+decision with a number attached rather than a matter of taste.
 
 ---
 

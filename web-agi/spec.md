@@ -23,8 +23,8 @@ stack        TypeScript + Vite, no UI framework
 game data    bundled with the app at build time
 v1 scope     playable core; no sound, no save/restore   (M0-M6, shipped)
 v2 scope     sound (M7) and save/restore (M8), both shipped
-v3 scope     the sound chip switch (M9), the display seam (M10) and what the
-             scripts are told (M11), all shipped; the palettes (M12-M13)
+v3 scope     the sound chip switch (M9), the display seam (M10), what the
+             scripts are told (M11) and CGA (M12), all shipped; Hercules (M13)
 code sharing npm workspaces, web-agi imports agi-extract
 ```
 
@@ -579,9 +579,9 @@ it — and each of those paths sets the waiting script's flag, for the same reas
 The original shipped four display drivers and the game still carries them:
 `EGA_GRAF.OVL`, `CGA_GRAF.OVL`, `JR_GRAF.OVL` and `HGC_GRAF.OVL`, with a
 `HGC_FONT` and a pair of `*_OBJS` overlays beside them. The engine now draws
-through a driver and the shell chooses which — **three drivers, not four**; EGA
-is the only one that draws in its own colours so far, and this is what the other
-two mean, and why there is no third.
+through a driver and the shell chooses which — **three drivers, not four**. EGA
+and CGA draw in their own colours; Hercules is answered for and drawn in EGA's
+until M13. This is what the other two mean, and why there is no third.
 
 A mode is two things at once, and that is the whole difficulty -- and the reason
 the work is four milestones rather than one. It is an adapter's palette to draw
@@ -591,11 +591,25 @@ checked in entirely different ways: a seam and an answer can be tested, while a
 palette can only be looked at.
 
 ```text
-EGA        16 colours, 160x168 doubled to 320 -- what the engine draws today
+EGA        16 colours, 160x168 doubled to 320
 CGA        4 colours, with the 16 reached by dithering pairs of pixels
 Hercules   two colours, its own font, its own object drawing -- and a layout
            the game moves itself
 ```
+
+The dither costs nothing, which is why one set of resources could serve four
+adapters. An AGI pixel is twice as wide as it is tall, so EGA spends its 320
+pixels *duplicating* the picture's 160; CGA spends the same two on colour
+instead. What it cannot do is reach sixteen: two colours from four is ten
+blends, so six of the sixteen share an appearance with another. The mapping is
+CGA palette 1 at low intensity — black, cyan, magenta, light grey — chosen by
+scoring all four hardware palettes against the colours this game actually
+draws, which puts the bright cyan-and-magenta of Sierra CGA screenshots second.
+Three quarters of what is lost is one group: light grey, yellow and white, all
+on the brightest blend, because a palette whose brightest colour is light grey
+cannot show a highlight on light grey. Text is drawn solid rather than dithered
+— a glyph stroke is one or two pixels of an eight-pixel cell, and a dithered
+stroke is a stroke with holes in it.
 
 `JR_GRAF.OVL` has no counterpart, and that is a decision rather than an
 omission. A PCjr differs from an EGA in three places and two of them are empty:
@@ -658,7 +672,11 @@ that belongs to the scripts rather than to the renderer.
 Neither the CGA palette nor the Hercules dither can be read out of the original
 driver, because the bundled game deliberately ships only its resource files. They
 are derived instead, and checked the way the opcode table was: by rendering the
-game's own pictures and looking at the result.
+game's own pictures and looking at the result. M12 is where that mattered — two
+mappings that scored better on lost boundaries each hid a whole object, because
+a boundary count measures an outline's perimeter while the object is its area.
+What each mapping costs is recorded beside it and recomputed by a test, so
+changing it is a decision with a number attached rather than a matter of taste.
 
 ## The sound chip (M9)
 
@@ -920,8 +938,10 @@ M11 What the scripts are drawn on
     drawn in EGA colours. The PCjr mode came out: see The graphics modes.
 
 M12 CGA
-    Four colours, and sixteen reached by dithering.
-    Ends with: every picture renders in CGA, and EGA is untouched.
+    Four colours, and sixteen reached by dithering pairs of pixels.
+    Ends with: every picture renders in CGA in the four colours it has, the
+    dither reads as a checkerboard, text stays solid and legible, and EGA is
+    untouched.
 
 M13 Hercules
     720x348, two colours, its own 8x12 font and object drawing.
@@ -929,7 +949,7 @@ M13 Hercules
 ```
 
 ```text
-M0  complete    M4  complete    M8  complete     M12 not started
+M0  complete    M4  complete    M8  complete     M12 complete
 M1  complete    M5  complete    M9  complete     M13 not started
 M2  complete    M6  complete    M10 complete
 M3  complete    M7  complete    M11 complete

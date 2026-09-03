@@ -38,9 +38,18 @@ const KEY = 'web-agi:settings';
 /**
  * What a player gets before they choose anything.
  *
+ * **EGA**, because it is the mode that is known to be right: it is what the
+ * golden tests hold still, and CGA and Hercules are approximations of hardware
+ * nobody here can hold the result up against. A player who wants one asks for
+ * one.
+ *
  * The PCjr rather than the speaker: the engine has always played four voices,
  * and agreeing *downwards* would take away half the notes of a game most people
  * remember with them.
+ *
+ * A choice already made outranks both, because it was written down on purpose --
+ * so a browser that remembers CGA starts on CGA. Clearing `web-agi:settings`
+ * from the browser's storage is what puts these back.
  */
 export const DEFAULT_SETTINGS: Settings = { graphics: 'ega', sound: 'pcjr' };
 

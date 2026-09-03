@@ -22,6 +22,9 @@ import { Frame } from '../src/render/frame.ts';
 import { Renderer } from '../src/render/renderer.ts';
 import { PICTURE_HEIGHT, PICTURE_WIDTH } from '../src/render/screens.ts';
 import { type CellMetrics, layOutWindow, TextLayer } from '../src/render/text.ts';
+import { GRAPHICS_MODES } from '../src/shell/controls.ts';
+import { DEFAULT_SETTINGS, loadSettings } from '../src/shell/settings.ts';
+import type { KeyValueStore } from '../src/storage/saves.ts';
 
 /** A frame with one of every kind of layer in it. */
 function everything(): Frame {
@@ -36,6 +39,25 @@ function everything(): Frame {
     .rows(24, 24, 1)
     .window(layOutWindow('a message', { column: 5, row: 5 }));
 }
+
+test('a player who has chosen nothing gets EGA', () => {
+  // The mode that is known to be right, and the one the golden tests hold
+  // still. CGA and Hercules are approximations of hardware nobody here can
+  // compare against, so neither is what the engine starts on.
+  assert.equal(DEFAULT_SETTINGS.graphics, 'ega');
+  assert.equal(loadSettings(null).graphics, 'ega', 'with no storage at all');
+  assert.equal(loadSettings(emptyStorage()).graphics, 'ega', 'with storage but nothing stored');
+
+  // And first in the list, so the select shows it even if nothing matches.
+  assert.equal(GRAPHICS_MODES[0]?.value, 'ega');
+
+  // A stored mode wins over the default -- that is M11's "the choice survives
+  // a reload" -- and anything the list does not hold falls back rather than
+  // leaving the engine with a mode it cannot build.
+  assert.equal(loadSettings(storedGraphics('cga')).graphics, 'cga');
+  assert.equal(loadSettings(storedGraphics('pcjr')).graphics, 'ega', 'a mode since removed');
+  assert.equal(loadSettings(storedGraphics('nonsense')).graphics, 'ega');
+});
 
 test('a driver reports the mode it was asked for', () => {
   for (const mode of ['ega', 'cga', 'hercules'] as DisplayMode[]) {
@@ -160,3 +182,25 @@ test('a two-colour palette survives being handed a fifteen', () => {
     'every channel has a value',
   );
 });
+
+/** The least storage the settings reader needs, holding nothing. */
+function emptyStorage(): KeyValueStore {
+  return storage(new Map());
+}
+
+/** Storage holding one remembered graphics mode and nothing else. */
+function storedGraphics(mode: string): KeyValueStore {
+  return storage(new Map([['web-agi:settings', JSON.stringify({ graphics: mode })]]));
+}
+
+function storage(items: Map<string, string>): KeyValueStore {
+  return {
+    get length() {
+      return items.size;
+    },
+    key: (index) => [...items.keys()][index] ?? null,
+    getItem: (key) => items.get(key) ?? null,
+    setItem: (key, value) => void items.set(key, value),
+    removeItem: (key) => void items.delete(key),
+  };
+}
