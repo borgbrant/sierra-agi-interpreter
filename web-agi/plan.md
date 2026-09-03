@@ -417,7 +417,17 @@ Then the decoder, then the player:
    then waits for it hangs — the one deadlock this milestone can introduce that
    M4's no-op could not.
 
-*As built:* audio is scheduled on the audio clock as planned, but *the flag* is
+*As built:* the autoplay policy turned out to be the whole of the milestone's
+difficulty, and the plan saw only its first half. Creating the context on a
+gesture is not enough, because the game starts its 58-second theme on cycle 1:
+by the time a player presses anything the theme has been running silently, and
+at the title the key they press is the one that skips it and stops the music. So
+two things. The player hands whatever is playing to a new output at the offset
+it has reached, and the scheduler can start a sound part-way through; and the
+engine does not run its first cycle until the page has been touched, which is
+what makes the opening theme audible at all.
+
+Audio is scheduled on the audio clock as planned, but *the flag* is
 timed off the engine's own elapsed milliseconds, in `SoundPlayer.tick`, called
 from `Cycle.advance` before anything else. Two reasons, both found while
 building it: the flag has to arrive on the same schedule when there is no audio

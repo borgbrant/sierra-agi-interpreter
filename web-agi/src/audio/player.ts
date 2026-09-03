@@ -17,6 +17,7 @@ import type { Sound } from '../resources/sound.ts';
 import { SILENT_OUTPUT, type SoundOutput } from './output.ts';
 
 interface Playing {
+  sound: Sound;
   /** The flag the script is waiting on, or 0 when it asked for none. */
   flag: number;
   remainingMs: number;
@@ -51,6 +52,14 @@ export class SoundPlayer {
   setOutput(output: SoundOutput): void {
     this.#output = output;
     output.setVolume(this.#level);
+
+    // Whatever is playing has been playing silently, and is handed over where
+    // it has got to. The game's theme starts on the first cycle, long before a
+    // browser will let a page make a noise, so without this the opening is
+    // silent for its whole minute and the first thing ever heard is the sound
+    // after it.
+    const playing = this.#playing;
+    if (playing) output.play(playing.sound, playing.sound.durationMs - playing.remainingMs);
   }
 
   /** How loud, 0 to 1. Timing is deliberately unaffected. */
@@ -79,7 +88,7 @@ export class SoundPlayer {
   play(sound: Sound, flag: number): number {
     const displaced = this.#finish();
     this.#output.play(sound);
-    this.#playing = { flag, remainingMs: sound.durationMs };
+    this.#playing = { sound, flag, remainingMs: sound.durationMs };
     return displaced;
   }
 

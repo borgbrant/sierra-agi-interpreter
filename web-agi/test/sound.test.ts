@@ -35,11 +35,13 @@ const sounds = soundIds.map((id) => parseSound(resources.loadSync('sound', id)))
 /** Records what it was asked to do, so the engine's half can be tested alone. */
 class FakeOutput implements SoundOutput {
   played: Sound[] = [];
+  from: number[] = [];
   stops = 0;
   volume = 1;
 
-  play(sound: Sound): void {
+  play(sound: Sound, fromMs = 0): void {
     this.played.push(sound);
+    this.from.push(fromMs);
   }
   stop(): void {
     this.stops++;
@@ -369,6 +371,54 @@ test('volume scales the whole output rather than the notes', () => {
   // The master gain is set directly, not scheduled, so the notes' own gains
   // are unchanged by it -- a sound turned down is the same sound.
   assert.ok(events.some((e) => e.param === 'gain' && e.value > 0));
+});
+
+test('a sound already running is handed to the audio when it arrives', () => {
+  // The game's theme starts on the first cycle, and no browser will let a page
+  // make a noise before the player has touched it. Without the hand-over the
+  // whole opening plays silently and the first thing ever heard is what comes
+  // after it.
+  const player = new SoundPlayer();
+  const sound = sounds[0]!;
+
+  player.play(sound, 5);
+  player.tick(1000);
+
+  const late = new FakeOutput();
+  player.setOutput(late);
+
+  assert.equal(late.played.length, 1, 'the running sound is started on the new output');
+  assert.equal(late.from[0], 1000, 'from where it had got to');
+});
+
+test('nothing is handed over when nothing is playing', () => {
+  const player = new SoundPlayer();
+  const late = new FakeOutput();
+
+  player.setOutput(late);
+
+  assert.equal(late.played.length, 0);
+});
+
+test('picking a sound up part-way schedules only what is left of it', () => {
+  const { context, events, stopped } = fakeContext();
+  const output = new WebAudioOutput(context as unknown as AudioContext);
+  const sound = sounds[0]!;
+
+  output.play(sound);
+  const whole = events.length;
+  events.length = 0;
+  stopped.length = 0;
+
+  const skipMs = sound.durationMs / 2;
+  output.play(sound, skipMs);
+
+  assert.ok(events.length < whole, 'the notes already gone are not scheduled again');
+  assert.ok(events.length > 0, 'and the rest still is');
+  assert.ok(
+    stopped.every((at) => at <= sound.durationMs / 1000 - skipMs / 1000 + 1e-6),
+    'the sound ends when it would have ended, not a full length later',
+  );
 });
 
 test('the player is silent, and in time, with no output at all', () => {

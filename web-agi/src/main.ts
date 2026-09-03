@@ -1,4 +1,4 @@
-import { enableAudioOnGesture } from './audio/context.ts';
+import { audioReady } from './audio/context.ts';
 import { SoundPlayer } from './audio/player.ts';
 import { buildHandlers } from './engine/commands/index.ts';
 import { Cycle } from './engine/cycle.ts';
@@ -47,13 +47,7 @@ try {
   const machine = new Machine({ resources, objects, vocabulary, sound });
   machine.setHandlers(buildHandlers());
 
-  // Audio cannot exist until the player has touched the page, so the engine
-  // starts against the silent output and is given a real one at the first key
-  // or click. Nothing about the game's timing changes when that happens.
-  enableAudioOnGesture(sound);
-
   const cycle = new Cycle(machine);
-  cycle.start(0);
 
   const canvas = new CanvasView(shell.stage);
   const renderer = new Renderer();
@@ -149,6 +143,16 @@ try {
     requestAnimationFrame(frame);
   };
 
+  // Nothing runs until the player has touched the page, because that is when
+  // the browser will let the page make a noise -- and the game starts its theme
+  // on the first cycle. Starting the engine first means the opening plays
+  // silently and the key that finally allows audio is usually the one that
+  // skips the title and stops the music.
+  shell.setStatus('press any key to start');
+  const output = await audioReady();
+  if (output) sound.setOutput(output);
+
+  cycle.start(0);
   paint();
   requestAnimationFrame(frame);
 

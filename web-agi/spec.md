@@ -539,10 +539,16 @@ looping buffer of random samples played at the rate the notes ask for.
 
 Two constraints shape the design more than the format does:
 
-- **An `AudioContext` starts suspended until a user gesture.** The context is
-  created lazily and resumed on the first keypress, and a suspended context
-  degrades to what M4 did — silence, with the flag set on schedule — never to a
-  stall.
+- **An `AudioContext` starts suspended until a user gesture**, and the game
+  starts its theme on cycle 1. Those two facts do not fit: whatever a player's
+  first keypress is, the opening has already been playing silently — and at the
+  title that keypress is usually the one that skips it, which changes room and
+  stops the music. So the engine does not run its first cycle until the page has
+  been touched: the shell says *press any key to start*, the gesture is consumed
+  rather than passed to the game, and the context exists before the first cycle
+  does. A sound already running when a context arrives is handed to it at the
+  point it has reached, which covers a context that arrives late anyway; a
+  browser with no WebAudio at all resolves immediately and plays silently.
 - **`stop.sound` must release whatever was waiting.** A script that stops its own
   sound and then waits on its flag would otherwise hang. This is the one deadlock
   playback can introduce that a no-op could not.

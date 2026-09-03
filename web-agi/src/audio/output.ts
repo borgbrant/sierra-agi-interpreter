@@ -15,8 +15,13 @@ import {
 } from '../resources/sound.ts';
 
 export interface SoundOutput {
-  /** Start a sound, replacing whatever was playing. */
-  play(sound: Sound): void;
+  /**
+   * Start a sound, replacing whatever was playing.
+   *
+   * @param fromMs where in the sound to start, for one that has been running
+   *               silently while the browser withheld an audio context
+   */
+  play(sound: Sound, fromMs?: number): void;
   /** Silence immediately. */
   stop(): void;
   /**
@@ -80,14 +85,16 @@ export class WebAudioOutput implements SoundOutput {
     this.#master.gain.value = MASTER_GAIN * this.#level;
   }
 
-  play(sound: Sound): void {
+  play(sound: Sound, fromMs = 0): void {
     this.stop();
 
     const context = this.#context;
     const start = context.currentTime;
+    const skip = Math.max(0, fromMs) / 1000;
 
     sound.channels.forEach((channel, index) => {
       if (channel.notes.length === 0) return;
+      if (channel.durationTicks / TICKS_PER_SECOND <= skip) return;
 
       const gain = context.createGain();
       gain.gain.value = 0;
@@ -97,9 +104,16 @@ export class WebAudioOutput implements SoundOutput {
         index === NOISE_CHANNEL ? this.#createNoise(channel.notes) : this.#createTone();
       source.connect(gain);
 
-      let at = start;
+      // Times are the sound's own, shifted so that `skip` lands on `start`.
+      // A note that has already been and gone is skipped, and the one playing
+      // when the audio arrived starts now, part-way through.
+      let elapsed = 0;
       for (const note of channel.notes) {
         const seconds = note.durationTicks / TICKS_PER_SECOND;
+        const at = Math.max(start, start + elapsed - skip);
+        elapsed += seconds;
+        if (elapsed <= skip) continue;
+
         const frequency = frequencyOf(note.divisor);
 
         if (index === NOISE_CHANNEL) {
@@ -113,14 +127,13 @@ export class WebAudioOutput implements SoundOutput {
           (source as OscillatorNode).frequency.setValueAtTime(frequency, at);
           gain.gain.setValueAtTime(gainOf(note.attenuation), at);
         }
-
-        at += seconds;
       }
 
       // Whatever the last note left the gain at, the channel ends silent.
-      gain.gain.setValueAtTime(0, at);
+      const end = start + Math.max(0, elapsed - skip);
+      gain.gain.setValueAtTime(0, end);
       source.start(start);
-      source.stop(at);
+      source.stop(end);
       this.#playing.push(source);
     });
   }
