@@ -13,15 +13,24 @@
  */
 import { COLUMNS } from '../render/text.ts';
 
-/** The character AGI shows where the next one will be typed. */
-export const CURSOR = '_';
+/** The cursor AGI shows where the next character will be typed. */
+export const DEFAULT_CURSOR = '_';
+
+/**
+ * The marker the input line starts with, until the game supplies its own.
+ *
+ * AGI keeps it in string 0, and this game writes `]` there -- the DOS prompt
+ * the whole genre borrowed. It is a different thing from the cursor: the marker
+ * leads the line, the cursor follows what has been typed.
+ */
+export const DEFAULT_PROMPT = ']';
 
 export class Prompt {
   /** What the player has typed so far. */
   text = '';
 
-  /** The character the line starts with, which scripts can change. */
-  cursorChar = '>';
+  /** The cursor drawn after the typed text. `set.cursor.char` changes it. */
+  cursorChar = DEFAULT_CURSOR;
 
   /** How long a line may get. Set from the reserved variable. */
   maxLength = 40;
@@ -62,9 +71,13 @@ export class Prompt {
     return Math.max(1, Math.min(this.maxLength, COLUMNS - 2));
   }
 
-  /** The line as it should appear on screen, cursor included. */
-  render(): string {
-    return `${this.cursorChar}${this.text}${CURSOR}`.slice(0, COLUMNS);
+  /**
+   * The line as it should appear on screen, marker and cursor included.
+   *
+   * @param prompt the marker the line starts with, from string 0
+   */
+  render(prompt = DEFAULT_PROMPT): string {
+    return `${prompt}${this.text}${this.cursorChar}`.slice(0, COLUMNS);
   }
 
   clear(): void {

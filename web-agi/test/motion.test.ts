@@ -574,6 +574,75 @@ test('a nearer object is drawn over a further one', () => {
   assert.equal(m.screens.colourAt(20, 60), 2, 'the nearer colour wins');
 });
 
+test('a moving object walks in front of standing furniture at the same depth', () => {
+  // Lefty's bar: the jukebox is a stopped object pinned to priority 11, and the
+  // control lines let ego walk the strip of floor beside it -- inside the box's
+  // drawn silhouette, because the box leans back and its footprint is narrower
+  // than its picture. By position alone the jukebox is nearer, by one pixel
+  // row, and ego disappears into it.
+  const m = walkable();
+  const ego = standing(m, 0, 20, 99, blockView(8, 8, 1));
+  const furniture = standing(m, 1, 20, 100, blockView(8, 8, 2));
+
+  ego.priority = 11;
+  furniture.priority = 11;
+  furniture.update = false;
+
+  drawObjects(m);
+
+  assert.equal(m.screens.colourAt(20, 99), 1, 'the one that moves is drawn last');
+});
+
+test('a nearer object still wins between two that both move', () => {
+  const m = walkable();
+  const near = standing(m, 0, 20, 100, blockView(8, 8, 1));
+  const far = standing(m, 1, 20, 99, blockView(8, 8, 2));
+  near.priority = 11;
+  far.priority = 11;
+
+  drawObjects(m);
+
+  assert.equal(m.screens.colourAt(20, 99), 1, 'position decides when nothing else does');
+});
+
+test('a control line drawn across scenery does not punch a hole in it', () => {
+  // The control lines share the priority buffer with the depths, so where a
+  // line was drawn the depth underneath it is gone. Reading the line as a depth
+  // lets a sprite through it, and a line running across scenery becomes a
+  // one-pixel trail of sprite-coloured leaks -- which is what ego did to the
+  // floor's edge in the corner of Lefty's bar.
+  const m = walkable();
+  m.background.priority.fill(15); // scenery in front of everything
+  m.background.priority[Screens.index(20, 100)] = 0; // an obstacle line across it
+  m.screens.copyFrom(m.background);
+
+  const object = standing(m, 0, 20, 100, blockView(2, 1, 3));
+  object.priority = 10;
+
+  drawObjects(m);
+
+  assert.equal(m.screens.colourAt(20, 100), m.background.visual[Screens.index(20, 100)],
+    'the line is not a gap in the scenery');
+  assert.equal(m.screens.colourAt(21, 100), m.background.visual[Screens.index(21, 100)],
+    'and neither is the scenery beside it');
+});
+
+test('a control line over open ground still lets a sprite through', () => {
+  // The other half of the rule: a line drawn on the floor marks the floor, and
+  // the floor is what a character walks on.
+  const m = walkable();
+  m.background.priority.fill(6);
+  m.background.priority[Screens.index(20, 100)] = 0;
+  m.screens.copyFrom(m.background);
+
+  const object = standing(m, 0, 20, 100, blockView(2, 1, 3));
+  object.priority = 10;
+
+  drawObjects(m);
+
+  assert.equal(m.screens.colourAt(20, 100), 3, 'the ground below the line decides');
+});
+
 test('a transparent cel shows what is behind it', () => {
   const m = walkable();
   m.screens.visual.fill(7);

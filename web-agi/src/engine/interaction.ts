@@ -134,13 +134,15 @@ abstract class Question extends Interaction {
   /** Whether this question accepts a character. */
   protected abstract accepts(char: number): boolean;
 
-  override draw(display: Display, machine: Machine): void {
+  override draw(display: Display, _machine: Machine): void {
+    // Black on white, like every other message box, and deliberately not the
+    // machine's text attribute: that colours text written into character cells,
+    // and a game that left it on white-on-black would otherwise ask its
+    // questions in a black box.
     const window = layOutWindow(`${this.prompt}${this.text}_`, {
       width: WINDOW_TEXT_WIDTH,
       column: this.column,
       row: this.row,
-      foreground: machine.textForeground,
-      background: machine.textBackground,
     });
     drawWindow(display, window);
   }

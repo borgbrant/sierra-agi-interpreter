@@ -6,10 +6,17 @@
  * priority is at least the priority already on the screen. That second rule is
  * what puts a character behind a tree.
  *
- * Control lines need no special case here. They occupy priority values 0-3 and
- * objects always have a priority of 4 or more, so the comparison lets sprites
- * pass over them, which is what should happen: control lines steer movement,
- * they do not hide anything.
+ * Control lines are the one special case. They occupy priority values 0-3 in the
+ * same buffer as the depths, so wherever a line was drawn there is no depth
+ * left to compare against -- the line has overwritten it. Comparing against the
+ * line itself lets a sprite through, and a line that runs across scenery
+ * becomes a one-pixel hole in that scenery: in Lefty's bar, the floor's edge
+ * runs diagonally into the black margin at the left, and ego standing there
+ * leaks through the wall as a diagonal of ego-coloured pixels tracing the line.
+ *
+ * So a control-line pixel is not a depth but a gap in the depths, and the depth
+ * to use is the first real one below it -- which is where the ground that line
+ * was drawn on continues.
  */
 import { celPixelsForLoop, TRANSPARENT } from 'agi-extract/view';
 
@@ -62,8 +69,9 @@ export function drawCel(screens: Screens, cel: Cel, options: DrawCelOptions): nu
       const screenX = x + column;
       if (screenX < 0 || screenX >= PICTURE_WIDTH) continue;
 
+      if (priority < effectivePriority(screens, screenX, screenY)) continue;
+
       const at = Screens.index(screenX, screenY);
-      if (priority < screens.priority[at]!) continue;
 
       screens.visual[at] = colour;
       if (writePriority) screens.priority[at] = priority;
@@ -72,6 +80,25 @@ export function drawCel(screens: Screens, cel: Cel, options: DrawCelOptions): nu
   }
 
   return painted;
+}
+
+/** The lowest value that is a depth rather than a control line. */
+const LOWEST_PRIORITY = 4;
+
+/**
+ * The depth a pixel really has, seeing past any control line drawn on it.
+ *
+ * Scans down the column for the first real priority, because a control line is
+ * drawn along the ground it marks and the ground carries on below it. A line
+ * with nothing but more line beneath it hides nothing, which is the reading
+ * that leaves sprites at the very bottom of the picture alone.
+ */
+function effectivePriority(screens: Screens, x: number, y: number): number {
+  for (let row = y; row < PICTURE_HEIGHT; row++) {
+    const value = screens.priority[Screens.index(x, row)]!;
+    if (value >= LOWEST_PRIORITY) return value;
+  }
+  return 0;
 }
 
 /**

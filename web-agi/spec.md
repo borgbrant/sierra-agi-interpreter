@@ -381,6 +381,13 @@ Values 0-3 are not depth but control information the game reacts to:
 Movement checks read these, which is why the priority screen must be rendered as
 carefully as the visible one even though nobody sees it.
 
+Because the control values share the buffer with the depths, a control line
+erases the depth of the pixels it covers. It is therefore read as a gap rather
+than as a depth: a sprite compositing against a control-line pixel takes the
+first real priority below it, which is the ground the line was drawn along.
+Reading the line itself as a depth lets sprites through it, and a line crossing
+scenery then shows up as a one-pixel trail of sprite-coloured leaks.
+
 ### Display layout
 
 The full 320x200 display is a 40x25 grid of 8x8 characters:
@@ -412,11 +419,21 @@ The engine restores what a sprite covered before the next cycle draws it, rather
 than redrawing the whole picture, matching the original's model of a static
 background with objects composited over it.
 
+Objects are drawn back to front by priority. Where two share a priority, the
+tie-break is that a *moving* object is drawn over a stopped one: the original
+keeps two sprite lists and blits the `stop.update`ed, scenery-like objects
+before the ones that move. It matters wherever a game pins furniture to the same
+priority band as the floor beside it -- an object whose drawn silhouette is
+wider than the footprint its control lines defend would otherwise swallow a
+character standing next to it.
+
 ## Text, windows and menus
 
 - **Status line**: score and sound state, drawn on row 0 when enabled.
 - **Message windows**: word-wrapped boxes drawn over the picture, dismissed by a
-  keypress or after a timeout.
+  keypress or after a timeout. Drawn as the original draws them: the box in its
+  background colour, a single red line ruled a little way *inside* the edge
+  rather than around it, and the text padded a character cell in from that line.
 - **Inventory screen**: the item list, and item close-ups drawn from a VIEW.
 - **Menus**: the pull-down menu bar the game defines through LOGIC commands.
 
@@ -427,6 +444,12 @@ explicitly rather than by blocking.
 
 Keyboard handling covers three modes: walking (arrow keys set ego's direction),
 the text prompt (a line editor over the input line), and menu navigation.
+
+The input line is drawn as a marker, the typed text, then a cursor. The two
+characters come from different places and are easy to confuse: the marker is
+string 0, the one string the interpreter reserves -- this game writes `]` into
+it -- while the cursor is set by `set.cursor.char`, which this game sets to `_`.
+Using one for the other gives an input line reading `__`.
 
 When the player submits a line, the parser:
 

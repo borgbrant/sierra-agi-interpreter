@@ -20,6 +20,13 @@
  */
 export const MAX_SOUND_VOLUME = 15;
 
+/**
+ * The string the input line's marker comes from.
+ *
+ * The one reserved string AGI has. This game writes `]` into it.
+ */
+export const PROMPT_STRING = 0;
+
 /** Variables the interpreter reserves for itself. Scripts may read all of them. */
 export const VAR = {
   CURRENT_ROOM: 0,

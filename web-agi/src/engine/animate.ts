@@ -56,11 +56,30 @@ export function drawObjects(machine: Machine): void {
   }
 }
 
-/** Visible objects, furthest away first. */
+/**
+ * Visible objects, furthest away first.
+ *
+ * Priority decides depth, and everything below it is a tie-break between
+ * objects the game has put at the same depth. The one that matters is
+ * *updating* before *non-updating*: the original keeps two sprite lists and
+ * blits the scenery-like, `stop.update`ed objects before the moving ones, so a
+ * character at the same priority as a piece of standing furniture walks in
+ * front of it rather than disappearing into it.
+ *
+ * Lefty's bar is the case that shows it. The jukebox is a stopped object pinned
+ * to priority 11, and the picture's control lines let ego walk the strip of
+ * floor beside it -- which is inside the box's drawn silhouette, because the
+ * box leans back in perspective and its footprint is narrower than its picture.
+ * Sorted by position alone the jukebox is nearer, by a single pixel row, and
+ * swallows ego whole.
+ */
 function drawingOrder(machine: Machine): ViewObject[] {
+  const order = (object: ViewObject) => (object.update ? 1 : 0);
   return machine.viewTable
     .visible()
-    .sort((a, b) => a.priority - b.priority || a.y - b.y || a.number - b.number);
+    .sort(
+      (a, b) => a.priority - b.priority || order(a) - order(b) || a.y - b.y || a.number - b.number,
+    );
 }
 
 /**

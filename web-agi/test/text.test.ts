@@ -9,6 +9,9 @@ import {
   drawText,
   drawWindow,
   layOutWindow,
+  WINDOW_BORDER_COLOUR,
+  DEFAULT_BACKGROUND_COLOUR,
+  DEFAULT_TEXT_COLOUR,
   ROWS,
   TextLayer,
   wrapText,
@@ -166,16 +169,45 @@ test('a window tall enough to reach the bottom still starts below the status lin
   assert.ok(window.row >= 1, 'the status line is not covered');
 });
 
-test('a window paints a border round its text', () => {
+test('a window rules its border inside a padded box, as the original does', () => {
   const display = new Display();
   display.fill(5);
-  drawWindow(display, layOutWindow('hi', { column: 10, row: 10, foreground: 0, background: 15 }));
+  const window = layOutWindow('hi', { column: 10, row: 10, foreground: 0, background: 15 });
+  drawWindow(display, window);
 
-  // Inside the text area: background. Just outside: border. Further out: the
-  // fill, untouched.
-  assert.equal(display.pixels[(10 * 8 - 1) * 320 + 10 * 8], 15, 'the padding inside the border');
-  assert.equal(display.pixels[(10 * 8 - 3) * 320 + 10 * 8], 0, 'the border');
-  assert.equal(display.pixels[(10 * 8 - 4) * 320 + 10 * 8], 5, 'and nothing beyond it');
+  assert.equal(window.border, WINDOW_BORDER_COLOUR, 'red unless a caller says otherwise');
+
+  const at = (x: number, y: number) => display.pixels[y * 320 + x];
+  const textLeft = 10 * 8;
+  const textTop = 10 * 8;
+
+  // Straight up from the top-left of the text: padding, then the ruled line,
+  // then the margin outside it, then the picture.
+  assert.equal(at(textLeft, textTop - 1), 15, 'the padding the text sits in');
+  assert.equal(at(textLeft, textTop - 6), WINDOW_BORDER_COLOUR, 'the line');
+  assert.equal(at(textLeft, textTop - 8), 15, 'background outside the line as well as inside');
+  assert.equal(at(textLeft, textTop - 9), 5, 'and the picture beyond the box');
+
+  // And exactly the same across: the padding above and below matches the
+  // padding at the sides, which is the point of measuring it in pixels.
+  assert.equal(at(textLeft - 1, textTop), 15, 'padding to the left of the text');
+  assert.equal(at(textLeft - 6, textTop), WINDOW_BORDER_COLOUR, 'the line down the side');
+  assert.equal(at(textLeft - 8, textTop), 15, 'background outside it');
+  assert.equal(at(textLeft - 9, textTop), 5, 'and the picture beyond');
+});
+
+test('a message box is white whatever the text attribute has been set to', () => {
+  // set.text.attribute colours text written into cells, not message boxes. A
+  // game that leaves it on white-on-black asked for that on the status line,
+  // not for a black window.
+  const display = new Display();
+  const window = layOutWindow('hi', { column: 10, row: 10 });
+
+  assert.equal(window.background, DEFAULT_BACKGROUND_COLOUR);
+  assert.equal(window.foreground, DEFAULT_TEXT_COLOUR);
+
+  drawWindow(display, window);
+  assert.equal(display.pixels[(10 * 8 - 1) * 320 + 10 * 8], DEFAULT_BACKGROUND_COLOUR);
 });
 
 // --- The text layer --------------------------------------------------------

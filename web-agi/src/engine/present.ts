@@ -18,10 +18,11 @@
  * picture having to be drawn again -- and so the engine's own tests can hash
  * the screens without the score getting into the hash.
  */
+import { DEFAULT_PROMPT } from '../input/prompt.ts';
 import { Renderer } from '../render/renderer.ts';
 import { COLUMNS, drawText, drawWindow, PROMPT_ROW, STATUS_ROW } from '../render/text.ts';
 import type { Machine } from './machine.ts';
-import { FLAG, VAR } from './state.ts';
+import { FLAG, PROMPT_STRING, VAR } from './state.ts';
 
 /** Colours the status line is drawn in: black on white, as the original. */
 const STATUS_FOREGROUND = 0;
@@ -82,7 +83,10 @@ export function present(machine: Machine, renderer: Renderer): void {
     !machine.pending &&
     machine.textLayer.rowIsEmpty(PROMPT_ROW)
   ) {
-    drawText(renderer.display, machine.prompt.render().padEnd(40), 0, PROMPT_ROW, 15, 0);
+    // The marker the line starts with is string 0, which is where AGI keeps it
+    // and where this game writes its `]`.
+    const marker = machine.state.getString(PROMPT_STRING) || DEFAULT_PROMPT;
+    drawText(renderer.display, machine.prompt.render(marker).padEnd(40), 0, PROMPT_ROW, 15, 0);
   }
 
   if (machine.window) drawWindow(renderer.display, machine.window);

@@ -11,6 +11,7 @@
  * template, and printing one unexpanded shows the player `%v3` where the score
  * should be.
  */
+import { DEFAULT_CURSOR } from '../../input/prompt.ts';
 import { layOutWindow, WINDOW_TEXT_WIDTH } from '../../render/text.ts';
 import { MessageWindow, NumberQuestion, StringQuestion } from '../interaction.ts';
 import type { Handler, Machine } from '../machine.ts';
@@ -31,12 +32,15 @@ function text(m: Machine, number: number): string {
  * nothing is returned and there is nothing to wait for.
  */
 function show(m: Machine, message: string, column?: number, row?: number, width?: number) {
+  // Deliberately not the machine's text colours. `set.text.attribute` colours
+  // text written into character cells -- `display` text, the status line -- and
+  // a game that has left it on something else would otherwise turn its next
+  // message box that colour. Message boxes are black on white throughout the
+  // original, whatever the attribute happens to be.
   const window = layOutWindow(message, {
     width: width ?? WINDOW_TEXT_WIDTH,
     column,
     row,
-    foreground: m.textForeground,
-    background: m.textBackground,
   });
 
   if (m.state.getFlag(FLAG.LEAVE_WINDOW_OPEN)) {
@@ -106,8 +110,10 @@ export const TEXT: Record<string, Handler> = {
   },
 
   'set.cursor.char': (m, [message]) => {
-    // The message is the prompt character; an empty one means no marker.
-    m.prompt.cursorChar = (m.message(message!) ?? '>').charAt(0) || ' ';
+    // The cursor, not the marker the line starts with: that one lives in string
+    // 0. This game sets the cursor to `_` and the string to `]`, and using one
+    // for the other gives an input line reading `__`.
+    m.prompt.cursorChar = (m.message(message!) ?? DEFAULT_CURSOR).charAt(0) || ' ';
   },
 
   // The full-screen text mode is only used by the original for its error and

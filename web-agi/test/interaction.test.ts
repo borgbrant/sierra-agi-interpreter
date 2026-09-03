@@ -115,9 +115,22 @@ test('the prompt collects a line and hands it over on Enter', () => {
   const prompt = new Prompt();
 
   for (const character of 'look') assert.equal(prompt.key(character.charCodeAt(0), character), null);
-  assert.equal(prompt.render(), '>look_');
+  assert.equal(prompt.render(), ']look_');
   assert.equal(prompt.key(13, 'Enter'), 'look');
   assert.equal(prompt.text, '', 'and starts again empty');
+});
+
+test('the marker leads the line and the cursor follows the typing', () => {
+  // Two different characters from two different places: the game writes its
+  // marker into string 0 and sets the cursor with set.cursor.char. Using one
+  // for both is what turned this game's input line into `__`.
+  const prompt = new Prompt();
+  prompt.cursorChar = '_';
+
+  for (const character of 'get') prompt.key(character.charCodeAt(0), character);
+
+  assert.equal(prompt.render(']'), ']get_');
+  assert.equal(prompt.render('>'), '>get_');
 });
 
 test('the prompt edits and cancels', () => {
