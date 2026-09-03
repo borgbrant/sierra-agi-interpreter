@@ -17,15 +17,8 @@
  * key, and what to write back when it ends -- which keeps the cycle from
  * needing to know what kind of thing it is waiting for.
  */
-import type { Display } from '../render/display.ts';
-import {
-  COLUMNS,
-  drawText,
-  drawWindow,
-  layOutWindow,
-  WINDOW_TEXT_WIDTH,
-  type TextWindow,
-} from '../render/text.ts';
+import type { Frame } from '../render/frame.ts';
+import { COLUMNS, layOutWindow, WINDOW_TEXT_WIDTH, type TextWindow } from '../render/text.ts';
 import type { Machine } from './machine.ts';
 import { VAR } from './state.ts';
 
@@ -49,8 +42,14 @@ export interface Key {
 
 /** Something the game is waiting for. */
 export abstract class Interaction {
-  /** Draw it over whatever is already on the display. */
-  abstract draw(display: Display, machine: Machine): void;
+  /**
+   * Add itself to the frame, over whatever is already in it.
+   *
+   * Cells and windows rather than pixels: an interaction is drawn by the
+   * running display driver like everything else, so a message box on a
+   * Hercules screen is a Hercules message box without this knowing.
+   */
+  abstract draw(frame: Frame, machine: Machine): void;
 
   /**
    * Take a key.
@@ -126,8 +125,8 @@ export class MessageWindow extends Interaction {
     this.#remainingMs = closeAfterHalfSeconds > 0 ? closeAfterHalfSeconds * 500 : null;
   }
 
-  override draw(display: Display): void {
-    drawWindow(display, this.window);
+  override draw(frame: Frame): void {
+    frame.window(this.window);
   }
 
   override key(_machine: Machine, _key: Key): boolean {
@@ -167,7 +166,7 @@ abstract class Question extends Interaction {
   /** Whether this question accepts a character. */
   protected abstract accepts(char: number): boolean;
 
-  override draw(display: Display, _machine: Machine): void {
+  override draw(frame: Frame, _machine: Machine): void {
     // Black on white, like every other message box, and deliberately not the
     // machine's text attribute: that colours text written into character cells,
     // and a game that left it on white-on-black would otherwise ask its
@@ -177,7 +176,7 @@ abstract class Question extends Interaction {
       column: this.column,
       row: this.row,
     });
-    drawWindow(display, window);
+    frame.window(window);
   }
 
   override key(_machine: Machine, key: Key): boolean {
@@ -241,15 +240,14 @@ export class StringQuestion extends Question {
  * screen rather than a box.
  */
 export function drawTextScreen(
-  display: Display,
+  frame: Frame,
   lines: readonly string[],
   foreground: number,
   background: number,
   topRow = 0,
 ): void {
-  display.fill(background);
+  frame.fill(background);
   lines.forEach((line, index) => {
-    const row = topRow + index;
-    drawText(display, line.slice(0, COLUMNS), 0, row, foreground, background);
+    frame.text(line.slice(0, COLUMNS), 0, topRow + index, foreground, background);
   });
 }

@@ -12,6 +12,7 @@
  * preference, the other is somebody's evening.
  */
 import type { SoundChip } from '../audio/output.ts';
+import type { DisplayMode } from '../render/drivers/driver.ts';
 import type { KeyValueStore } from '../storage/saves.ts';
 
 /**
@@ -19,9 +20,11 @@ import type { KeyValueStore } from '../storage/saves.ts';
  *
  * The four the original shipped, and it says so itself: the game's own
  * directory holds `CGA_GRAF.OVL`, `EGA_GRAF.OVL`, `HGC_GRAF.OVL` and
- * `JR_GRAF.OVL`, one driver per adapter. Only EGA is drawn so far; see M10-M13.
+ * `JR_GRAF.OVL`, one driver per adapter. The list is the renderer's, not the
+ * shell's -- a mode *is* a driver, and a setting that named modes the renderer
+ * had never heard of would be a second vocabulary to keep in step.
  */
-export type GraphicsMode = 'cga' | 'ega' | 'pcjr' | 'hercules';
+export type GraphicsMode = DisplayMode;
 
 export interface Settings {
   graphics: GraphicsMode;

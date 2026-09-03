@@ -15,7 +15,7 @@
  * `restored` rather than doing anything clever: the machine sees it on the way
  * out and abandons the rest of the cycle, exactly as `new.room` does.
  */
-import type { Display } from '../render/display.ts';
+import type { Frame } from '../render/frame.ts';
 import type { SaveSlot, SaveStore } from '../storage/saves.ts';
 import { drawTextScreen, Interaction, type Key } from './interaction.ts';
 import type { Machine } from './machine.ts';
@@ -52,9 +52,9 @@ abstract class SlotScreen extends Interaction {
   protected abstract title(): string;
   protected abstract lines(): string[];
 
-  override draw(display: Display, machine: Machine): void {
+  override draw(frame: Frame, machine: Machine): void {
     drawTextScreen(
-      display,
+      frame,
       [this.title(), '', ...this.lines()],
       machine.textForeground,
       machine.textBackground,

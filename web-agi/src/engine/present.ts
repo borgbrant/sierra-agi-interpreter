@@ -18,11 +18,15 @@
  * picture having to be drawn again -- and so the engine's own tests can hash
  * the screens without the score getting into the hash.
  */
+import { Frame } from '../render/frame.ts';
+import type { Renderer, ScreenView } from '../render/renderer.ts';
+import { COLUMNS, PROMPT_ROW, STATUS_ROW } from '../render/text.ts';
 import { DEFAULT_PROMPT } from '../input/prompt.ts';
-import { Renderer } from '../render/renderer.ts';
-import { COLUMNS, drawText, drawWindow, PROMPT_ROW, STATUS_ROW } from '../render/text.ts';
 import type { Machine } from './machine.ts';
 import { FLAG, PROMPT_STRING, VAR } from './state.ts';
+
+/** What shows outside the picture, where nothing else has been drawn. */
+const CHROME_COLOUR = 0;
 
 /** Colours the status line is drawn in: black on white, as the original. */
 const STATUS_FOREGROUND = 0;
@@ -47,29 +51,31 @@ export function statusLine(machine: Machine): string {
 }
 
 /**
- * Draw everything the player should see.
+ * Describe everything the player should see.
  *
- * @param machine  the game
- * @param renderer where it is drawn
+ * The result is a {@link Frame} -- cells, screens and windows -- rather than
+ * pixels. Which is the point: this module decides the order things are drawn
+ * in, and the display driver decides what they look like.
+ *
+ * @param machine the game
+ * @param view    which of the two screens to show
  */
-export function present(machine: Machine, renderer: Renderer): void {
+export function buildFrame(machine: Machine, view: ScreenView = 'visual'): Frame {
+  const frame = new Frame();
+
   if (machine.textMode) {
-    renderer.display.fill(machine.textBackground);
+    frame.fill(machine.textBackground);
   } else {
-    renderer.compose(machine.screens);
+    // Black behind the status line and the input area. The text layer draws
+    // over both; this is what shows where it has written nothing.
+    frame.fill(CHROME_COLOUR);
+    frame.picture(view === 'visual' ? machine.screens.visual : machine.screens.priority);
   }
 
-  machine.textLayer.draw(renderer.display);
+  frame.cells(machine.textLayer);
 
   if (machine.statusLineVisible) {
-    drawText(
-      renderer.display,
-      statusLine(machine),
-      0,
-      STATUS_ROW,
-      STATUS_FOREGROUND,
-      STATUS_BACKGROUND,
-    );
+    frame.text(statusLine(machine), 0, STATUS_ROW, STATUS_FOREGROUND, STATUS_BACKGROUND);
   }
 
   // The command line is only offered when the game is actually listening, and
@@ -86,9 +92,21 @@ export function present(machine: Machine, renderer: Renderer): void {
     // The marker the line starts with is string 0, which is where AGI keeps it
     // and where this game writes its `]`.
     const marker = machine.state.getString(PROMPT_STRING) || DEFAULT_PROMPT;
-    drawText(renderer.display, machine.prompt.render(marker).padEnd(40), 0, PROMPT_ROW, 15, 0);
+    frame.text(machine.prompt.render(marker).padEnd(COLUMNS), 0, PROMPT_ROW, 15, 0);
   }
 
-  if (machine.window) drawWindow(renderer.display, machine.window);
-  machine.pending?.draw(renderer.display, machine);
+  if (machine.window) frame.window(machine.window);
+  machine.pending?.draw(frame, machine);
+
+  return frame;
+}
+
+/**
+ * Draw everything the player should see.
+ *
+ * @param machine  the game
+ * @param renderer where it is drawn
+ */
+export function present(machine: Machine, renderer: Renderer): void {
+  renderer.render(buildFrame(machine, renderer.view));
 }

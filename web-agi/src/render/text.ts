@@ -12,11 +12,38 @@
  * original does and text boxed exactly on cell boundaries looks wrong.
  */
 import { CHAR_HEIGHT, CHAR_WIDTH, glyph } from './font.ts';
-import { Display, DISPLAY_HEIGHT, DISPLAY_WIDTH } from './display.ts';
+import { Display } from './display.ts';
 
-/** The character grid. */
-export const COLUMNS = DISPLAY_WIDTH / CHAR_WIDTH; // 40
-export const ROWS = DISPLAY_HEIGHT / CHAR_HEIGHT; // 25
+/**
+ * The character grid.
+ *
+ * AGI's own, not any driver's: every text command addresses a 40x25 grid,
+ * whatever size the adapter drawing it happens to be. What one cell becomes in
+ * pixels is a driver's decision, and travels as {@link CellMetrics}.
+ */
+export const COLUMNS = 40;
+export const ROWS = 25;
+
+/**
+ * How a driver turns a character cell into pixels.
+ *
+ * Two facts, and the original needed both: the size of the cell, and the font
+ * to put in it. Hercules is why -- its `HGC_FONT` is 3072 bytes, 256 glyphs of
+ * twelve rows, against the eight the IBM font draws, and its cells are wider
+ * than its glyphs because its screen is 720 pixels across for the same 40
+ * columns. A glyph narrower than its cell is stretched to fill it, so the same
+ * blitter serves both.
+ */
+export interface CellMetrics {
+  /** Pixel size of one cell. */
+  width: number;
+  height: number;
+  /** The rows of one character, high bit leftmost; `height` of them. */
+  glyph(code: number): ArrayLike<number>;
+}
+
+/** The 8x8 IBM font in an 8x8 cell: what EGA, CGA and the PCjr draw. */
+export const IBM_CELL: CellMetrics = { width: CHAR_WIDTH, height: CHAR_HEIGHT, glyph };
 
 /** Row 0 is the status line, and the last three rows are the prompt area. */
 export const STATUS_ROW = 0;
@@ -43,20 +70,15 @@ export const DEFAULT_BACKGROUND_COLOUR = 15;
  */
 export const WINDOW_BORDER_COLOUR = 4;
 
-/**
- * Window background around the text block, in pixels.
- *
- * A character cell on every side. The same above and below as at the sides,
- * which is not what the character grid would give on its own -- cells are 8x8
- * but text is written flush to the top of its row, so equal padding has to be
- * asked for in pixels.
- */
-const WINDOW_PADDING = 8;
-
 /** How far the ruled line sits inside the window's outer edge. */
 const BORDER_INSET = 2;
 
-/** Draw one character at a cell. */
+/**
+ * Draw one character at a cell.
+ *
+ * A glyph wider or narrower than the cell is scaled to it, which is how an
+ * 8-pixel font fills an 18-pixel Hercules cell without a second blitter.
+ */
 export function drawChar(
   display: Display,
   code: number,
@@ -64,25 +86,31 @@ export function drawChar(
   row: number,
   foreground: number,
   background: number,
+  cell: CellMetrics = IBM_CELL,
 ): void {
-  const bitmap = glyph(code);
-  const left = column * CHAR_WIDTH;
-  const top = row * CHAR_HEIGHT;
+  const bitmap = cell.glyph(code);
+  const left = column * cell.width;
+  const top = row * cell.height;
 
-  for (let y = 0; y < CHAR_HEIGHT; y++) {
+  for (let y = 0; y < cell.height; y++) {
     const screenY = top + y;
-    if (screenY < 0 || screenY >= DISPLAY_HEIGHT) continue;
+    if (screenY < 0 || screenY >= display.height) continue;
 
-    const bits = bitmap[y]!;
-    let at = screenY * DISPLAY_WIDTH + left;
+    const bits = bitmap[y] ?? 0;
+    let at = screenY * display.width + left;
 
-    for (let x = 0; x < CHAR_WIDTH; x++, at++) {
+    for (let x = 0; x < cell.width; x++, at++) {
       const screenX = left + x;
-      if (screenX < 0 || screenX >= DISPLAY_WIDTH) continue;
-      display.pixels[at] = bits & (0x80 >> x) ? foreground : background;
+      if (screenX < 0 || screenX >= display.width) continue;
+      // Which bit of the eight-wide glyph this column of the cell shows.
+      const bit = cell.width === GLYPH_BITS ? x : Math.floor((x * GLYPH_BITS) / cell.width);
+      display.pixels[at] = bits & (0x80 >> bit) ? foreground : background;
     }
   }
 }
+
+/** How many bits wide a glyph row is; the PC's fonts are all byte-wide. */
+const GLYPH_BITS = 8;
 
 /**
  * Draw a line of text from a cell, left to right.
@@ -97,19 +125,26 @@ export function drawText(
   row: number,
   foreground = DEFAULT_TEXT_COLOUR,
   background = DEFAULT_BACKGROUND_COLOUR,
+  cell: CellMetrics = IBM_CELL,
 ): void {
   for (let i = 0; i < text.length; i++) {
     const at = column + i;
     if (at >= COLUMNS) break;
-    drawChar(display, text.charCodeAt(i), at, row, foreground, background);
+    drawChar(display, text.charCodeAt(i), at, row, foreground, background, cell);
   }
 }
 
 /** Paint whole character rows one colour. */
-export function clearRows(display: Display, from: number, to: number, colour: number): void {
-  const top = Math.min(from, to) * CHAR_HEIGHT;
-  const height = (Math.abs(to - from) + 1) * CHAR_HEIGHT;
-  display.fillRect(0, top, DISPLAY_WIDTH, height, colour);
+export function clearRows(
+  display: Display,
+  from: number,
+  to: number,
+  colour: number,
+  cell: CellMetrics = IBM_CELL,
+): void {
+  const top = Math.min(from, to) * cell.height;
+  const height = (Math.abs(to - from) + 1) * cell.height;
+  display.fillRect(0, top, display.width, height, colour);
 }
 
 /**
@@ -225,12 +260,20 @@ export function layOutWindow(
  * what the original looks like, and it is why this reaches for pixels rather
  * than staying in cells.
  */
-export function drawWindow(display: Display, window: TextWindow): void {
+export function drawWindow(
+  display: Display,
+  window: TextWindow,
+  cell: CellMetrics = IBM_CELL,
+): void {
   const textWidth = Math.max(1, ...window.lines.map((line) => line.length));
-  const left = window.column * CHAR_WIDTH - WINDOW_PADDING;
-  const top = window.row * CHAR_HEIGHT - WINDOW_PADDING;
-  const width = textWidth * CHAR_WIDTH + WINDOW_PADDING * 2;
-  const height = window.lines.length * CHAR_HEIGHT + WINDOW_PADDING * 2;
+  // The padding is a cell on every side, so it follows the driver's cell
+  // rather than staying at EGA's eight pixels.
+  const padX = cell.width;
+  const padY = cell.height;
+  const left = window.column * cell.width - padX;
+  const top = window.row * cell.height - padY;
+  const width = textWidth * cell.width + padX * 2;
+  const height = window.lines.length * cell.height + padY * 2;
 
   display.fillRect(left, top, width, height, window.background);
   strokeRect(
@@ -243,7 +286,15 @@ export function drawWindow(display: Display, window: TextWindow): void {
   );
 
   window.lines.forEach((line, index) => {
-    drawText(display, line, window.column, window.row + index, window.foreground, window.background);
+    drawText(
+      display,
+      line,
+      window.column,
+      window.row + index,
+      window.foreground,
+      window.background,
+      cell,
+    );
   });
 }
 
@@ -352,14 +403,22 @@ export class TextLayer {
     this.chars.fill(0);
   }
 
-  /** Draw every written cell onto the display. */
-  draw(display: Display): void {
+  /** Draw every written cell onto a driver's framebuffer. */
+  draw(display: Display, metrics: CellMetrics = IBM_CELL): void {
     for (let row = 0; row < ROWS; row++) {
       for (let column = 0; column < COLUMNS; column++) {
         const cell = TextLayer.index(column, row);
         const code = this.chars[cell]!;
         if (code === 0) continue;
-        drawChar(display, code, column, row, this.foreground[cell]!, this.background[cell]!);
+        drawChar(
+          display,
+          code,
+          column,
+          row,
+          this.foreground[cell]!,
+          this.background[cell]!,
+          metrics,
+        );
       }
     }
   }

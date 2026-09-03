@@ -23,7 +23,8 @@ stack        TypeScript + Vite, no UI framework
 game data    bundled with the app at build time
 v1 scope     playable core; no sound, no save/restore   (M0-M6, shipped)
 v2 scope     sound (M7) and save/restore (M8), both shipped
-v3 scope     the sound chip switch (M9, shipped), graphics modes (M10-M13)
+v3 scope     the sound chip switch (M9) and the display seam (M10), both
+             shipped; the modes themselves (M11-M13)
 code sharing npm workspaces, web-agi imports agi-extract
 ```
 
@@ -577,12 +578,14 @@ it — and each of those paths sets the waiting script's flag, for the same reas
 
 The original shipped four display drivers and the game still carries them:
 `EGA_GRAF.OVL`, `CGA_GRAF.OVL`, `JR_GRAF.OVL` and `HGC_GRAF.OVL`, with a
-`HGC_FONT` and a pair of `*_OBJS` overlays beside them. The engine draws the
-first of the four; the shell offers all four; this is what the other three mean.
+`HGC_FONT` and a pair of `*_OBJS` overlays beside them. The engine now draws
+through a driver, one per adapter, and the shell chooses which; EGA is the only
+one of the four that draws in its own colours, and this is what the other three
+mean.
 
 A mode is two things at once, and that is the whole difficulty -- and the reason
 the work is four milestones rather than one. It is an adapter's palette to draw
-with (M10 makes room for it, M12 and M13 build two), and it is an answer the
+with (M10 made room for it, M12 and M13 build two), and it is an answer the
 scripts get (M11). The two are worth separating because they are
 checked in entirely different ways: a seam and an answer can be tested, while a
 palette can only be looked at.
@@ -612,10 +615,12 @@ is also where the four-voice sound of M9 comes from.
 
 Each mode is a **display driver**, a layer outside the engine that the engine
 draws through — one per adapter, as the original had one overlay per adapter.
-What crosses down to a driver is what the engine has: the two 160x168 screens,
-the grid of character cells with their colours, and any window over them. What a
-driver decides is its canvas size and pixel aspect, its palette and how sixteen
-colours reach fewer, its font, and how a character cell becomes pixels.
+What crosses down to a driver is a *frame*: an ordered description of the two
+160x168 screens, the cells that have been written and their colours, any window
+over them, and — once, for an item's close-up — a lone VIEW cel. Nothing in it
+mentions a display pixel. What a driver decides is its canvas size and pixel
+aspect, its palette and how sixteen colours reach fewer, its font, and how a
+character cell becomes pixels.
 
 That is not an aesthetic split. **Hercules is 720x348**, not 320x200, and its
 font is not the engine's: the game's own `HGC_FONT` is 3072 bytes — 256 glyphs
@@ -737,10 +742,11 @@ doing something.
 ## Rendering to canvas
 
 A single `<canvas>`, scaled up by whole-number factors with smoothing disabled
-so the pixels stay sharp. Its backing size is 320x200 while EGA is the only
-display there is; with the drivers of M10 it becomes whatever the running driver
-asks for -- Hercules is 720x348 -- and the aspect it is presented at follows the
-driver too. The engine composes into an offscreen
+so the pixels stay sharp. Its backing size is the running driver's own -- EGA's
+320x200 today, and 720x348 when Hercules arrives -- re-made when the driver
+changes, and the aspect it is presented at follows the driver too. EGA asks for
+square pixels, because the doubling that turns the 160-wide picture into 320 is
+already the correction. The engine composes into an offscreen
 `ImageData` buffer and blits once per frame; it never draws primitives with the
 canvas 2D API.
 
@@ -755,10 +761,12 @@ the window size.
 Deliberately thin: a page holding the canvas, a title, an error surface, and a
 row of controls for the things the player chooses rather than the game.
 
-Three of those controls exist, and one of them names work that is not built:
+Three of those controls exist, and one of them still names work that is not
+finished:
 
 ```text
-Graphics    CGA / EGA / PCjr / Herc.  chosen; only EGA is drawn (M10-M13)
+Graphics    CGA / EGA / PCjr / Herc.  wired to a driver each; only EGA's
+                                      draws in its own colours (M11-M13)
 Sound chip  PC speaker / PCjr         wired: one voice, or four
 Sound on    on / off                  wired: the game's own sound flag
 ```
@@ -894,7 +902,7 @@ M13 Hercules
 ```text
 M0  complete    M4  complete    M8  complete     M12 not started
 M1  complete    M5  complete    M9  complete     M13 not started
-M2  complete    M6  complete    M10 not started
+M2  complete    M6  complete    M10 complete
 M3  complete    M7  complete    M11 not started
 ```
 

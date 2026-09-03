@@ -3,7 +3,7 @@
 Companion to [spec.md](spec.md). The spec says *what* to build; this says in what
 order, in which files, and how each step is proven to work.
 
-> **M0-M9 are done and shipped. M10-M13 are specified and not started.** The
+> **M0-M10 are done and shipped. M11-M13 are specified and not started.** The
 > milestones are kept as they were written, for the reasoning behind the
 > sequencing and for the format measurements in the next section. They are not a
 > description of the code as built: several modules ended up named or split
@@ -22,7 +22,7 @@ M6  Playable                  complete
 M7  Sound                     complete
 M8  Save and restore          complete
 M9  The sound chip switch     complete
-M10 The display driver seam   not started
+M10 The display driver seam   complete
 M11 What the scripts see      not started
 M12 CGA                       not started
 M13 Hercules                  not started
@@ -733,7 +733,7 @@ nothing here depends on it.
 
 ---
 
-## M10 — The display driver seam — not started
+## M10 — The display driver seam — complete
 
 The graphics modes were one milestone until they were written down, and then
 they were plainly four. This one is the only one of them a test can prove, and
@@ -782,11 +782,30 @@ display"; it is *the EGA driver's* display.
 
 ### Files
 
+Five rather than four: the thing that crosses the seam turned out to need a
+name and a file of its own, and once it had one the interactions were the work
+rather than the renderer.
+
 ```text
+src/render/frame.ts              what crosses the seam: layers, in cells and
+                                 picture pixels, in the order they are drawn
 src/render/drivers/driver.ts     what a display driver is, and what it is given
 src/render/drivers/ega.ts        today's rendering, behind the seam
-src/engine/present.ts            hands the driver screens and cells, not pixels
+src/render/drivers/index.ts      the one place a mode name becomes a driver
+src/engine/present.ts            builds a frame; draws nothing itself
 src/shell/canvas.ts              the canvas sized by the driver, not by 320x200
+```
+
+Not in that list, and where the change was actually felt:
+
+```text
+src/engine/interaction.ts   Interaction.draw takes a frame, not a framebuffer
+src/engine/inventory.ts     an item's close-up asks for a cel, not a rectangle
+src/engine/menu.ts          the menu bar asks for cells
+src/engine/savegame.ts      the save and restore screens with it
+src/render/text.ts          the cell blitter takes the driver's cell and font
+src/render/display.ts       a framebuffer with a size and a palette, not the
+                            display; 320x200 is only its default
 ```
 
 ### Order of work
@@ -807,6 +826,74 @@ business rather than the renderer's -- which is M11.
 canvas takes its size from it, and the golden tests are untouched. That last
 clause is the milestone: this is a change that is *supposed* to be invisible,
 and the tests are what say it was.
+
+### What the seam turned out to be
+
+The plan said what crosses down: two screens, cells with colours, a window. It
+was one entry short, and the missing one is the interesting one. `show.obj`
+draws a **lone VIEW cel** for an item's close-up -- the only place outside the
+picture where the engine wants a sprite -- and the original shipped
+`HGC_OBJS.OVL` beside `IBM_OBJS.OVL` for exactly that. So a cel is the fourth
+thing a frame can hold, positioned in the picture's own rows and centred by the
+driver.
+
+A frame is an **ordered list**, not a set of layers by kind. AGI's order is not
+a hierarchy: a window sits over the text plane, but a script that writes on the
+input row expects its text over the command line, and the interaction the game
+is waiting for is over all of it. Keeping the caller's order is what let
+`present.ts` stay the one place that decides the order, which is what it was
+before.
+
+The seam moved more code than expected, and in one direction: **the
+interactions**. A message window, a question, the inventory page, the menu bar,
+the save and restore screens all drew pixels, and all of them now describe
+cells. That is the half of the milestone that a palette-only interface would
+have left undone, and it is why Hercules can have a message box in its own font
+without any of those five files knowing.
+
+Two smaller findings, both about assumptions that had gone unnamed:
+
+- The **character grid is 40x25 always**, and it was being derived from
+  320 / 8. Those are different facts: the scripts address forty columns whatever
+  the adapter, and eight pixels is EGA's answer to what a column is. Hercules
+  has forty columns on a 720-pixel screen, so its cell is eighteen wide with an
+  eight-wide glyph in it -- which is why the cell blitter now scales a glyph to
+  its cell rather than assuming they are the same size.
+- **A window's padding is a cell**, not eight pixels. It read as eight because
+  EGA's cell is eight; on a twelve-row cell the same rule gives a box that still
+  looks like a box.
+
+EGA asks to be presented with **square pixels**, which looks wrong until it is
+said out loud: the correction has already happened. The picture is 160 across
+and the buffer is 320, so the doubling is what makes an AGI pixel square. A
+driver whose buffer is *not* already corrected reports something else, and the
+canvas acts on it -- which is the property that keeps this milestone invisible
+while leaving 720x348 room to be right.
+
+### What the tests found
+
+Nothing, which for this milestone is the result. The golden tests were not
+touched and did not move, and exactly one of the 302 existing tests changed --
+the one that handed a question a framebuffer, which is the signature that no
+longer exists.
+
+The tests added are about the shape of the seam rather than about pixels, since
+pixels are what is *supposed* to be unchanged:
+
+```text
+a real frame is described in cells and screens, never in pixels
+the frame the engine describes is the frame the driver draws
+a driver keeps nothing between frames, so switching repaints in full
+the same frame draws at another size, with another cell
+a two-colour palette survives being handed a fifteen
+```
+
+The fourth is the one that earns its keep. It renders a real frame through a
+stub driver at Hercules' 720x348 with a twelve-row cell, and it is what says the
+interface was designed against the hardest mode rather than around EGA. The
+fifth is a defect it found on the way: the framebuffer masked colour indices
+with `& 0x0f`, which is sixteen colours assumed rather than asked for, and a
+two-colour driver handed a fifteen would have read past the end of its palette.
 
 ---
 
@@ -842,9 +929,12 @@ constants rather than something the game may move.
 src/engine/commands/text.ts   configure.screen stops being a no-op
 src/render/text.ts            the rows become state rather than constants
 src/engine/cycle.ts           the monitor and computer variables follow the choice
-src/render/drivers/pcjr.ts    EGA's pixels, a different answer
+(no new driver)               EGA's pixels are the PCjr's pixels, so M10's
+                              EgaDriver already answers for it; what M11 adds
+                              is the answer the scripts get
 src/shell/controls.ts         the select stops saying "not built yet" for PCjr
-src/storage/settings.ts       the choice survives a reload
+src/shell/settings.ts         the choice survives a reload (M9 built this;
+                              the graphics mode is already kept in it)
 ```
 
 ### Order of work

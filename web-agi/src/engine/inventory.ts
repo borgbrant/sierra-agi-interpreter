@@ -9,9 +9,9 @@
  * -- dropped out of the game rather than left on the floor. Neither is a real
  * room number, which is why both have names here.
  */
-import { DISPLAY_WIDTH, PICTURE_TOP, PIXEL_ASPECT, type Display } from '../render/display.ts';
-import { COLUMNS, drawText, wrapText } from '../render/text.ts';
-import { TRANSPARENT, type Cel } from '../render/sprite.ts';
+import type { Frame } from '../render/frame.ts';
+import { COLUMNS, wrapText } from '../render/text.ts';
+import type { Cel } from '../render/sprite.ts';
 import { CARRIED, type ObjectFile } from '../resources/objects.ts';
 import { drawTextScreen, Interaction, type Key } from './interaction.ts';
 import type { Machine } from './machine.ts';
@@ -110,7 +110,7 @@ export class InventoryScreen extends Interaction {
     this.selectable = selectable;
   }
 
-  override draw(display: Display, machine: Machine): void {
+  override draw(frame: Frame, machine: Machine): void {
     const lines = ['You are carrying:', ''];
 
     if (this.items.length === 0) {
@@ -125,7 +125,7 @@ export class InventoryScreen extends Interaction {
     lines.push('');
     lines.push(this.selectable ? 'Press ENTER to select, ESC to cancel.' : 'Press ENTER to continue.');
 
-    drawTextScreen(display, lines, machine.textForeground, machine.textBackground, 1);
+    drawTextScreen(frame, lines, machine.textForeground, machine.textBackground, 1);
   }
 
   override key(_machine: Machine, key: Key): boolean {
@@ -163,6 +163,12 @@ export class InventoryScreen extends Interaction {
  * is the caption. Nothing about it is drawn from the inventory state -- the
  * item and the view are connected only by the script that pairs them.
  */
+/** How far below the picture's top the close-up sits, in picture rows. */
+const CLOSE_UP_TOP = 20;
+
+/** The row the close-up's "press ENTER" sits on. */
+const CLOSE_UP_PROMPT_ROW = 23;
+
 export class ObjectCloseUp extends Interaction {
   readonly cel: Cel | undefined;
   readonly description: string;
@@ -173,32 +179,23 @@ export class ObjectCloseUp extends Interaction {
     this.description = description;
   }
 
-  override draw(display: Display, machine: Machine): void {
+  override draw(frame: Frame, machine: Machine): void {
     const lines = wrapText(this.description, COLUMNS - 2);
-    drawTextScreen(display, [], machine.textForeground, machine.textBackground);
+    drawTextScreen(frame, [], machine.textForeground, machine.textBackground);
 
-    if (this.cel) {
-      // Centred in the picture area, at the display's two-pixels-per-game-pixel.
-      const left = Math.floor((DISPLAY_WIDTH - this.cel.width * PIXEL_ASPECT) / 2);
-      const top = PICTURE_TOP + 20;
-
-      for (let y = 0; y < this.cel.height; y++) {
-        for (let x = 0; x < this.cel.width; x++) {
-          const colour = this.cel.pixels[y * this.cel.width + x]!;
-          if (colour === TRANSPARENT) continue;
-          display.fillRect(left + x * PIXEL_ASPECT, top + y, PIXEL_ASPECT, 1, colour);
-        }
-      }
-    }
+    // Where the cel goes, in the picture's own rows. How wide a picture pixel
+    // is and where the picture area starts are the driver's business -- the
+    // original shipped a separate object-drawing overlay per adapter for
+    // exactly this -- so the frame says "centred, this far down" and stops.
+    if (this.cel) frame.cel(this.cel, CLOSE_UP_TOP);
 
     lines.forEach((line, index) => {
-      drawText(display, line, 1, 1 + index, machine.textForeground, machine.textBackground);
+      frame.text(line, 1, 1 + index, machine.textForeground, machine.textBackground);
     });
-    drawText(
-      display,
+    frame.text(
       'Press ENTER to continue.',
       1,
-      23,
+      CLOSE_UP_PROMPT_ROW,
       machine.textForeground,
       machine.textBackground,
     );

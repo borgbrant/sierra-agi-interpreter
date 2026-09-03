@@ -7,7 +7,7 @@ import { MessageWindow, NumberQuestion } from '../src/engine/interaction.ts';
 import { InventoryScreen } from '../src/engine/inventory.ts';
 import { Machine } from '../src/engine/machine.ts';
 import { MenuNavigation } from '../src/engine/menu.ts';
-import { present, statusLine } from '../src/engine/present.ts';
+import { buildFrame, present, statusLine } from '../src/engine/present.ts';
 import { FLAG, VAR } from '../src/engine/state.ts';
 import { Renderer } from '../src/render/renderer.ts';
 import { describeState } from '../src/shell/debug.ts';
@@ -581,6 +581,45 @@ test('the menus the game defines have their items and shortcuts', () => {
 });
 
 // --- What ends up on screen ------------------------------------------------
+
+test('a real frame is described in cells and screens, never in pixels', () => {
+  // The display seam: what the engine hands a driver has to be sayable without
+  // knowing how big the screen is, or a second adapter has nowhere to differ.
+  // Every kind of layer a real playing frame produces is checked here, because
+  // a new one that carried a display pixel would be the way the seam leaks.
+  const player = new Player();
+  player.playOpening();
+
+  const frame = buildFrame(player.machine, 'visual');
+  const kinds = new Set(frame.layers.map((layer) => layer.kind));
+
+  assert.deepEqual([...kinds].sort(), ['cells', 'fill', 'picture', 'text']);
+
+  for (const layer of frame.layers) {
+    if (layer.kind === 'picture') {
+      assert.equal(layer.screen.length, 160 * 168, 'the picture crosses at its own size');
+    }
+    if (layer.kind === 'text') {
+      assert.ok(layer.row < 25 && layer.column < COLUMNS, 'placed in cells, not pixels');
+    }
+  }
+});
+
+test('the frame the engine describes is the frame the driver draws', () => {
+  const player = new Player();
+  player.playOpening();
+
+  const renderer = new Renderer();
+  present(player.machine, renderer);
+  const painted = renderer.display.pixels.slice();
+
+  // Drawing the description by hand reaches the same pixels, which is what says
+  // present() has stopped drawing anything itself.
+  const second = new Renderer();
+  second.render(buildFrame(player.machine, 'visual'));
+
+  assert.deepEqual(second.display.pixels, painted);
+});
 
 test('the status line is drawn as a bar across the whole screen', () => {
   // Not a caption: every cell of the row has to be painted, or the picture

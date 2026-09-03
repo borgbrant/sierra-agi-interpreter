@@ -11,8 +11,8 @@
  * expect it to have gone by the next cycle, so the set is cleared each time
  * round rather than when it is read.
  */
-import type { Display } from '../render/display.ts';
-import { clearRows, COLUMNS, drawText } from '../render/text.ts';
+import type { Frame } from '../render/frame.ts';
+import { COLUMNS } from '../render/text.ts';
 import { Interaction, type Key } from './interaction.ts';
 import type { Machine } from './machine.ts';
 
@@ -102,13 +102,13 @@ export class MenuNavigation extends Interaction {
     return this.#chosen;
   }
 
-  override draw(display: Display, machine: Machine): void {
+  override draw(frame: Frame, machine: Machine): void {
     const foreground = machine.textForeground;
     const background = machine.textBackground;
 
     // The bar itself sits on the status line, where the game's own status text
     // would otherwise be.
-    clearRows(display, 0, 0, background);
+    frame.rows(0, 0, background);
 
     let column = 1;
     const columns: number[] = [];
@@ -119,8 +119,7 @@ export class MenuNavigation extends Interaction {
 
     this.bar.menus.forEach((menu, index) => {
       const selected = index === this.#menu;
-      drawText(
-        display,
+      frame.text(
         menu.text,
         columns[index]!,
         0,
@@ -142,8 +141,7 @@ export class MenuNavigation extends Interaction {
       // A disabled item is shown, not hidden: the player should see that the
       // game has the command and that it is not available now.
       const dim = item.enabled ? foreground : 7;
-      drawText(
-        display,
+      frame.text(
         text,
         left,
         1 + index,

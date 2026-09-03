@@ -15,7 +15,8 @@ import { KeyBindings, MenuBar, MenuNavigation } from '../src/engine/menu.ts';
 import { FLAG, VAR } from '../src/engine/state.ts';
 import { keyFromEvent, keyNamed } from '../src/input/keyboard.ts';
 import { Prompt } from '../src/input/prompt.ts';
-import { Display } from '../src/render/display.ts';
+import { EgaDriver } from '../src/render/drivers/ega.ts';
+import { Frame } from '../src/render/frame.ts';
 import { layOutWindow } from '../src/render/text.ts';
 import { ResourceManager } from '../src/resources/manager.ts';
 import { parseObjectFile } from '../src/resources/objects.ts';
@@ -98,15 +99,19 @@ test('a string question writes into the interpreter strings', () => {
 
 test('a question draws its answer as it is typed', () => {
   const m = machine();
-  const display = new Display();
   const question = new StringQuestion('name? ', 3, 10);
 
   question.key(m, key('L'));
-  question.draw(display, m);
 
-  // Something was drawn; the specific pixels are the window's business, but a
-  // question that shows nothing back is unusable.
-  assert.ok(display.pixels.some((pixel) => pixel !== 0));
+  // The interaction describes a window rather than drawing pixels, so what it
+  // shows back is checked by rendering the frame it asks for. A question that
+  // shows nothing back is unusable, whatever adapter is drawing it.
+  const frame = new Frame();
+  question.draw(frame, m);
+
+  const driver = new EgaDriver();
+  driver.draw(frame);
+  assert.ok(driver.display.pixels.some((pixel) => pixel !== 0));
 });
 
 // --- The command line ------------------------------------------------------

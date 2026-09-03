@@ -60,7 +60,6 @@ try {
   const cycle = new Cycle(machine);
 
   const canvas = new CanvasView(shell.stage);
-  const renderer = new Renderer();
 
   /**
    * Say something to the player, and let them read it.
@@ -84,10 +83,17 @@ try {
   const settings = loadSettings(storage);
   machine.setSoundChip(settings.sound);
 
+  // The renderer is built after the settings are read, so the first frame is
+  // drawn on the adapter the player chose rather than on EGA and then swapped.
+  const renderer = new Renderer(settings.graphics);
+
   const controls = new Controls(shell.tools, {
     settings,
     onChange: (chosen) => {
       machine.setSoundChip(chosen.sound);
+      // A driver keeps nothing between frames, so a mode can change mid-room:
+      // the next frame is repainted in full on the new one.
+      if (renderer.setMode(chosen.graphics)) paint();
       saveSettings(storage, chosen);
     },
     isSoundOn: () => machine.state.getFlag(FLAG.SOUND_ON),
@@ -102,7 +108,7 @@ try {
 
   const paint = () => {
     present(machine, renderer);
-    canvas.present(renderer.display);
+    canvas.present(renderer.driver);
     controls.refresh();
   };
 
