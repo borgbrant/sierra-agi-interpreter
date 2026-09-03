@@ -68,6 +68,30 @@
  * the truth about the monitor and let the scripts do it -- which is why this is
  * a milestone about two variables rather than about the renderer.
  *
+ * ## The PCjr, and why it is not offered
+ *
+ * The original shipped `JR_GRAF.OVL` and the shell offered a PCjr to match it.
+ * It is gone, and the measurements above are the argument for taking it out.
+ *
+ * A PCjr differs from an EGA in three places, and two of them are empty. Its
+ * pixels are identical: the 160x200 mode is the sixteen-colour palette AGI was
+ * drawn for, so there was never a driver to build. Its monitor value, 1, is
+ * distinguished by no branch in the game -- the twenty-six mono tests ask for
+ * 2, and logic 0:89 is guarded by `equaln(20, 0)`, which a PCjr fails. What is
+ * left is the third: computer type 1 binds the digit keys 1-0, at logic 51:307,
+ * to the controllers every other machine reaches with F1 to F10.
+ *
+ * A *graphics* mode whose entire effect is a keyboard mapping is not a graphics
+ * mode, and a select offering four modes of which one can never look different
+ * from another misdescribes what the engine can do. So the choice is three
+ * modes that mean three things.
+ *
+ * What that costs is one real behaviour, recorded here so it is not lost: a
+ * PCjr's chiclet keyboard had no function keys, and the game knew it and bound
+ * the number row instead. Reaching it again needs computer type 1 to be
+ * settable, which is a *computer* to choose rather than a monitor -- and the
+ * day this engine offers that choice, the PCjr is the first entry on the list.
+ *
  * ## Where the values come from
  *
  * The numbers themselves are the documentation's, not this game's -- a branch
@@ -84,12 +108,15 @@ import type { DisplayMode } from '../render/drivers/driver.ts';
  * `MONO` is the one the game cares about, twenty-six times over. `CGA` is
  * corroborated by logic 0:89, which asks for an adapter that is neither mono
  * nor EGA and offers it a graphics-mode toggle -- a thing only a composite CGA
- * screen has any use for. `RGB` is the PCjr's, and is the one value here the
- * game never distinguishes.
+ * screen has any use for.
+ *
+ * Value 1 is the PCjr's RGB monitor, and it is not here. The bundled game never
+ * distinguishes it: it is neither `MONO` nor the `equaln(20, 0)` that guards
+ * logic 0:89, so every branch it reaches is the branch EGA reaches. See
+ * *The PCjr* below.
  */
 export const MONITOR = {
   CGA: 0,
-  RGB: 1,
   MONO: 2,
   EGA: 3,
 } as const;
@@ -97,13 +124,13 @@ export const MONITOR = {
 /**
  * Values of the computer variable, 20.
  *
- * Only the three the shell can offer. The game knows of eight, and the other
- * five are the ports -- an Atari ST, an Amiga, a Macintosh, an Apple IIgs --
- * which this engine is not and will not claim to be.
+ * Only the two the shell can offer. The game knows of eight: value 1 is the
+ * PCjr, and the remaining five are the ports -- an Atari ST, an Amiga, a
+ * Macintosh, an Apple IIgs -- which this engine is not and will not claim to
+ * be.
  */
 export const COMPUTER = {
   IBM_PC: 0,
-  PCJR: 1,
   TANDY: 2,
 } as const;
 
@@ -112,8 +139,6 @@ export function monitorTypeFor(mode: DisplayMode): number {
   switch (mode) {
     case 'cga':
       return MONITOR.CGA;
-    case 'pcjr':
-      return MONITOR.RGB;
     case 'hercules':
       return MONITOR.MONO;
     case 'ega':
@@ -122,26 +147,23 @@ export function monitorTypeFor(mode: DisplayMode): number {
 }
 
 /**
- * Which machine the shell's two choices add up to.
+ * Which machine the shell's choices add up to.
  *
  * The computer type is a separate variable from the monitor, and the shell has
- * no separate control for it -- so it is inferred from the pair, which is the
- * only place the two choices meet:
+ * no separate control for it -- so it is inferred, and with the PCjr not on
+ * offer there is only one thing left to infer it from:
  *
  * ```text
- * a PCjr display          a PCjr        -- its RGB mode is its display
- * PCjr sound, other pixels a Tandy      -- a Tandy 1000 is exactly this: the
- *                                          PCjr's sound chip, ordinary graphics
- * anything else           an IBM PC
+ * the PCjr sound chip   a Tandy 1000 -- which is exactly that: the PCjr's
+ *                       sound chip, and ordinary graphics
+ * a PC speaker          an IBM PC
  * ```
  *
  * Inferring rather than asking is a decision, and it is the one that keeps the
- * shell honest: a third select saying "Computer" would let a player describe a
- * machine that never existed -- a PCjr with a PC speaker -- and the game would
- * then be told something untrue about the hardware it is running on.
+ * shell honest. A third select saying "Computer" would let a player describe a
+ * machine that never existed, and the game would then be told something untrue
+ * about the hardware it is running on.
  */
-export function computerTypeFor(mode: DisplayMode, chip: SoundChip): number {
-  if (mode === 'pcjr') return COMPUTER.PCJR;
-  if (chip === 'pcjr') return COMPUTER.TANDY;
-  return COMPUTER.IBM_PC;
+export function computerTypeFor(chip: SoundChip): number {
+  return chip === 'pcjr' ? COMPUTER.TANDY : COMPUTER.IBM_PC;
 }

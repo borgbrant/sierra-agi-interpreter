@@ -597,6 +597,44 @@ checked by breaking the code on purpose -- dropping the inventory, the horizon,
 the scan starts, the scenery, and moving ego two pixels -- and every one of the
 five was caught.
 
+### The mode that came out
+
+The plan had four modes and the shell now offers three. The PCjr is gone, and
+what the milestone measured is the argument for taking it out.
+
+A PCjr differs from an EGA in three places, and building M11 emptied two of
+them:
+
+```text
+its pixels          identical -- the 160x200 mode *is* the sixteen-colour
+                    palette AGI was drawn for, so there is no driver to build
+its monitor value   1, and no branch in the game distinguishes it: the 26 mono
+                    tests ask for 2, and logic 0:89 is guarded by an
+                    `equaln(20, 0)` a PCjr fails
+its computer type   1, which binds the digit keys 1-0 at logic 51:307 to the
+                    controllers every other machine reaches with F1-F10
+```
+
+So a graphics mode whose entire observable effect is a keyboard mapping -- and a
+keyboard mapping that belongs to the *computer* the game runs on rather than to
+the monitor it is drawn on. A select offering four modes of which one can never
+look different from another misdescribes what the engine can do, so the choice
+is three modes that mean three things.
+
+What that costs is one real behaviour, and it is recorded in
+`engine/hardware.ts` rather than lost: a PCjr's chiclet keyboard had no function
+keys, the game knew it, and it bound the number row instead. There is a test
+that asserts no machine the shell can describe reaches that branch -- so the day
+a *computer* choice is added, that test is what fails and points at it.
+
+A smaller consequence, worth having: `computerTypeFor` now takes only the sound
+chip. The computer type was inferred from the pair of choices while a PCjr
+display was one of them; with it gone there is exactly one thing left to infer
+from, and a Tandy 1000 is the one machine other than a plain PC the shell can
+describe. The stored settings needed no migration -- a `pcjr` left in a
+browser from before falls back to the default the way any unrecognised value
+does, which is what the checked `pick` in `shell/settings.ts` was for.
+
 ### What the tests found
 
 Two real defects, both invisible by reading:
@@ -960,12 +998,8 @@ src/shell/controls.ts         every mode says what choosing it does
 src/main.ts                   the choice reaches the scripts, not only the driver
 ```
 
-No new driver. The PCjr's 160x200 mode is the sixteen-colour palette AGI
-targets, so M10's `EgaDriver` already answers for it and what M11 adds is the
-answer the *scripts* get. The plan's step 3 wanted PCjr built first to prove
-that switching drivers works with no rendering to hide a mistake behind; M10
-proved that with a stub driver at Hercules' size, so the step was already
-paid for.
+No new driver, and one fewer mode than the plan had. The PCjr came out; see
+below.
 
 ### Order of work
 
@@ -975,10 +1009,14 @@ paid for.
    place that assumed it could not.
 2. **The variables follow the choice**, so the scripts are told what the shell
    was told.
-3. **PCjr, which is EGA with a different answer.** The cheapest mode there is --
-   the PCjr's 160x200 mode uses the palette AGI already targets, so its pixels
-   are EGA's. It is worth building first anyway, because it proves *switching
-   drivers* with no rendering work to hide a mistake behind.
+3. ~~**PCjr, which is EGA with a different answer.** The cheapest mode there is
+   -- the PCjr's 160x200 mode uses the palette AGI already targets, so its
+   pixels are EGA's. It is worth building first anyway, because it proves
+   *switching drivers* with no rendering work to hide a mistake behind.~~
+   Dropped, and the mode with it. Its second sentence was already paid for by
+   M10, which proved driver switching against a stub at Hercules' size; and its
+   first turned out to be the whole of the mode rather than its cheapness. See
+   *The mode that came out*.
 4. **Remembering the choice**, with M9's.
 
 **Done when:** choosing PCjr changes the help page the game offers; telling the
@@ -987,15 +1025,18 @@ still drawn in EGA colours; and the choice survives a reload.
 
 ### What it is done by instead
 
-The middle clause could not be met as written, because the engine does not move
-the input row on a mono screen -- the game does, for itself, and this game never
-asks `configure.screen` for a different one. What replaced it are five
-consequences that can be seen rather than one that cannot:
+Two of the three clauses could not be met as written, and neither for want of
+work. The **first** is gone with its mode: no PCjr is offered, so no help page
+changes for one. The **middle** describes something the engine does not do --
+it does not move the input row on a mono screen; the game moves its own rows,
+and this game never asks `configure.screen` for a different input line at all.
+Only the third stood.
+
+What replaced them are four consequences that can be seen rather than one that
+cannot:
 
 ```text
 CGA      the Options menu gains "Graphics Mode <Ctrl-R>", and only for CGA
-PCjr     the digit keys 1-0 are bound, to the controllers every other machine
-         reaches with F1-F10 -- a chiclet keyboard with no function keys
 Tandy    `=` `-` and `+` are bound, and the volume they change works; on a PC
          speaker the game offers neither
 mono     the opening credits on rows 23 and 24 are not printed at all
@@ -1004,18 +1045,16 @@ Ctrl-R   flips the answer between mono and the chosen display, and back
 
 The **Tandy** is the one that needed a decision. The computer type is a separate
 variable from the monitor and the shell has no control for it, so it is inferred
-from the two choices that exist: a PCjr display makes a PCjr, the PCjr's sound
-chip on other pixels makes a Tandy 1000, and anything else is an IBM PC. A third
-select would have been more direct and worse -- it would let a player describe a
-PCjr with a PC speaker, and the game would then be told something untrue about
-the machine it is running on.
+from the choice that bears on it: the PCjr's sound chip with ordinary graphics is
+a Tandy 1000, and anything else is an IBM PC. A third select saying "Computer"
+would have been more direct and worse -- it would let a player describe a machine
+that never existed, and the game would then be told something untrue about the
+hardware it is running on.
 
-The game's own branches turned out to name two of those machines more precisely
-than the documentation does. Only computer type 1 is given the number keys, and
-they go to the controllers everything else reaches with the function keys; only
-computer type 2 is given volume keys, and the PCjr chip is the only one in the
-list whose volume can be changed at all. A PCjr and a Tandy 1000, identified by
-what the game does for them rather than by a table.
+The game's own branches name that machine more precisely than the documentation
+does: computer type 2 is the only one given volume keys, and the PCjr sound chip
+is the only one in the list whose volume can be changed at all. A Tandy 1000,
+identified by what the game does for it rather than by a table.
 
 ### What the tests found
 

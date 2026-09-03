@@ -38,7 +38,7 @@ function everything(): Frame {
 }
 
 test('a driver reports the mode it was asked for', () => {
-  for (const mode of ['ega', 'cga', 'pcjr', 'hercules'] as DisplayMode[]) {
+  for (const mode of ['ega', 'cga', 'hercules'] as DisplayMode[]) {
     assert.equal(createDriver(mode).mode, mode, mode);
   }
 });

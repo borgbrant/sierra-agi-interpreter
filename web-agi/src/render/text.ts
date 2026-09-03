@@ -43,7 +43,7 @@ export interface CellMetrics {
   glyph(code: number): ArrayLike<number>;
 }
 
-/** The 8x8 IBM font in an 8x8 cell: what EGA, CGA and the PCjr draw. */
+/** The 8x8 IBM font in an 8x8 cell: what EGA and CGA draw. */
 export const IBM_CELL: CellMetrics = { width: CHAR_WIDTH, height: CHAR_HEIGHT, glyph };
 
 

@@ -159,16 +159,19 @@ test('a question will not open above the floor the game set', () => {
 test('the monitor variable follows the display the player chose', () => {
   assert.equal(boot('ega').machine.state.getVar(VAR.MONITOR_TYPE), MONITOR.EGA);
   assert.equal(boot('cga').machine.state.getVar(VAR.MONITOR_TYPE), MONITOR.CGA);
-  assert.equal(boot('pcjr').machine.state.getVar(VAR.MONITOR_TYPE), MONITOR.RGB);
   assert.equal(boot('hercules').machine.state.getVar(VAR.MONITOR_TYPE), MONITOR.MONO);
 });
 
-test('the computer type is what the two choices add up to', () => {
+test('the computer type comes from the sound chip, and nothing else', () => {
+  // The PCjr's chip on ordinary graphics is a Tandy 1000, and that is the only
+  // machine other than a plain PC the shell can describe. The display has no
+  // say: none of the three modes on offer implies a different computer.
   const computer = (mode: DisplayMode, chip: SoundChip) =>
     boot(mode, chip).machine.state.getVar(VAR.COMPUTER_TYPE);
 
-  assert.equal(computer('pcjr', 'pcjr'), COMPUTER.PCJR, 'a PCjr display makes it a PCjr');
-  assert.equal(computer('ega', 'pcjr'), COMPUTER.TANDY, 'the chip without the display is a Tandy');
+  assert.equal(computer('ega', 'pcjr'), COMPUTER.TANDY);
+  assert.equal(computer('cga', 'pcjr'), COMPUTER.TANDY, 'whatever the display is');
+  assert.equal(computer('hercules', 'pcjr'), COMPUTER.TANDY);
   assert.equal(computer('ega', 'speaker'), COMPUTER.IBM_PC);
   assert.equal(computer('cga', 'speaker'), COMPUTER.IBM_PC);
 });
@@ -198,21 +201,28 @@ test('only a CGA screen is offered the graphics-mode toggle', () => {
 
   assert.equal(hasToggle('cga'), true);
   assert.equal(hasToggle('ega'), false);
-  assert.equal(hasToggle('pcjr'), false);
   assert.equal(hasToggle('hercules'), false);
 });
 
-test('a PCjr gets the number keys, because its keyboard has no function keys', () => {
-  // Logic 51:307 binds 1-0 to controllers 1-10 for computer type 1 and for
-  // nothing else. On every other machine those controllers are on F1-F10.
-  assert.equal(controllerFor(boot('pcjr', 'pcjr', 40).machine, '1', 'Digit1'), 1);
-  assert.equal(controllerFor(boot('ega', 'speaker', 40).machine, '1', 'Digit1'), undefined);
+test('no machine the shell can describe gets the number keys', () => {
+  // Logic 51:307 binds 1-0 to controllers 1-10 for computer type 1 alone -- a
+  // PCjr, whose chiclet keyboard had no function keys. The shell cannot offer
+  // one, so the branch is unreachable, and this is the test that says so: if a
+  // computer choice is ever added, this is what will fail and point at it.
+  for (const mode of ['ega', 'cga', 'hercules'] as DisplayMode[]) {
+    for (const chip of ['speaker', 'pcjr'] as SoundChip[]) {
+      const machine = boot(mode, chip, 40).machine;
+      assert.equal(controllerFor(machine, '1', 'Digit1'), undefined, `${mode}/${chip}`);
+    }
+  }
 });
 
 test('a Tandy gets the volume keys, and a PC has none to get', () => {
   // Logic 51:210 binds `=`, `-` and `+` for computer type 2, and logic 0:334
   // acts on their controllers for the same type. A PC speaker has no volume,
-  // so the game does not offer to change it.
+  // so the game does not offer to change it. This is the one machine other
+  // than a plain PC the shell can describe, so it is the whole of what the
+  // computer type does here.
   const tandy = boot('ega', 'pcjr', 40).machine;
   const pc = boot('ega', 'speaker', 40).machine;
 

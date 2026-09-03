@@ -579,9 +579,9 @@ it — and each of those paths sets the waiting script's flag, for the same reas
 The original shipped four display drivers and the game still carries them:
 `EGA_GRAF.OVL`, `CGA_GRAF.OVL`, `JR_GRAF.OVL` and `HGC_GRAF.OVL`, with a
 `HGC_FONT` and a pair of `*_OBJS` overlays beside them. The engine now draws
-through a driver, one per adapter, and the shell chooses which; EGA is the only
-one of the four that draws in its own colours, and this is what the other three
-mean.
+through a driver and the shell chooses which — **three drivers, not four**; EGA
+is the only one that draws in its own colours so far, and this is what the other
+two mean, and why there is no third.
 
 A mode is two things at once, and that is the whole difficulty -- and the reason
 the work is four milestones rather than one. It is an adapter's palette to draw
@@ -592,12 +592,23 @@ palette can only be looked at.
 
 ```text
 EGA        16 colours, 160x168 doubled to 320 -- what the engine draws today
-PCjr       the same 16 colours: the PCjr's 160x200 mode is the palette AGI
-           targets, so the pixels do not change and only the answer does
 CGA        4 colours, with the 16 reached by dithering pairs of pixels
 Hercules   two colours, its own font, its own object drawing -- and a layout
            the game moves itself
 ```
+
+`JR_GRAF.OVL` has no counterpart, and that is a decision rather than an
+omission. A PCjr differs from an EGA in three places and two of them are empty:
+its 160x200 mode *is* the sixteen-colour palette AGI was drawn for, so there is
+no driver to build, and its monitor value is distinguished by no branch in the
+game. What is left is that computer type 1 binds the digit keys instead of the
+function keys, because a PCjr's chiclet keyboard had none — which is a
+*computer* the game is running on rather than a monitor it is drawn on. A
+graphics mode whose whole effect is a keyboard mapping is not a graphics mode,
+and a select offering a fourth choice that can never look different from
+another misdescribes what the engine does. The behaviour is recorded in
+`engine/hardware.ts`, and the day the shell offers a computer to choose, the
+PCjr is the first entry on that list.
 
 The scripts ask about the display in twenty-seven places, and twenty-six of them
 ask one question: *is this mono?* CGA, PCjr and EGA all take the same path. The
@@ -621,9 +632,10 @@ changes nothing here and removes an assumption from three modules.
 The computer type is a separate variable from the monitor, read at ten sites in
 logics 0, 51 and 55: a different menu, different key bindings, and four
 different help pages. The shell has no control for it, so it is inferred from
-the two choices that exist — a PCjr display makes a PCjr, the PCjr's sound chip
-on other pixels makes a Tandy 1000, anything else an IBM PC. That is where the
-two settings meet, and it is where the four-voice sound of M9 comes from.
+the one choice that bears on it — the PCjr's sound chip with ordinary graphics
+is a Tandy 1000, and anything else is an IBM PC. A Tandy is the one machine
+other than a plain PC the shell can describe, and what the game gives it is its
+volume keys.
 
 Each mode is a **display driver**, a layer outside the engine that the engine
 draws through — one per adapter, as the original had one overlay per adapter.
@@ -776,20 +788,19 @@ row of controls for the things the player chooses rather than the game.
 Three controls, and every one of them does something:
 
 ```text
-Graphics    CGA / EGA / PCjr / Herc.  a driver each, and the scripts told
-                                      which; EGA's and the PCjr's draw in
-                                      their own colours, CGA's and Hercules'
-                                      in EGA's until M12 and M13
+Graphics    EGA / CGA / Hercules      a driver each, and the scripts told
+                                      which; only EGA's draws in its own
+                                      colours until M12 and M13
 Sound chip  PC speaker / PCjr         wired: one voice, or four
 Sound on    on / off                  wired: the game's own sound flag
 ```
 
 The graphics choice is two things at once — what the game is drawn in, and what
-the game is *told* it is being drawn on. The second half is real for all four
+the game is *told* it is being drawn on. The second half is real for all three
 modes: a game told it is on a mono screen lays its opening out for one, and a
-game told it is a PCjr binds a PCjr's keyboard. The first is real for two. Each
-choice says which of the two it is getting rather than implying more than it
-does.
+game told it is on CGA is offered a graphics-mode toggle. The first is real for
+EGA alone. Each choice says which of the two it is getting rather than implying
+more than it does.
 
 The two sound controls are wired. The chip switch changes what is played and
 what the scripts are told they are being played on, through one entry point so
@@ -903,10 +914,10 @@ M10 The display driver seam
     Ends with: nothing changes on screen, and the golden tests say so.
 
 M11 What the scripts are drawn on
-    configure.screen for real, the monitor and computer variables, PCjr.
+    configure.screen for real, and the monitor and computer variables.
     Ends with: the game lays itself out for the machine it is told it is on
-    -- a CGA menu item, a PCjr keyboard, a Tandy's volume keys, a mono
-    opening -- while still drawn in EGA colours.
+    -- a CGA menu item, a Tandy's volume keys, a mono opening -- while still
+    drawn in EGA colours. The PCjr mode came out: see The graphics modes.
 
 M12 CGA
     Four colours, and sixteen reached by dithering.

@@ -2,14 +2,18 @@
  * The shell's own controls: the settings the *player* chooses, as opposed to
  * the ones the game's menus offer.
  *
- * Every control does something now, and two of them do half of what they will.
+ * Every control does something now, and one of them does half of what it will.
  * The graphics choice is two things at once: what the game is *drawn* in, and
  * what the game is *told* it is being drawn on. The second half is real for all
- * four modes -- a game told it is on a mono screen lays itself out for one, and
- * a game told it is a PCjr binds different keys -- while the first is real for
- * EGA and the PCjr only, because the PCjr's mode is the palette AGI targets.
- * CGA and Hercules are answered for and drawn in EGA's colours until M12 and
- * M13, and the control says so rather than implying more than it does.
+ * three modes -- a game told it is on a mono screen lays its opening out for
+ * one, and a game told it is on CGA is offered a graphics-mode toggle -- while
+ * the first is real for EGA alone until M12 and M13. Each choice says which of
+ * the two it is getting rather than implying more than it does.
+ *
+ * Three modes rather than the original's four. A PCjr would be the one entry
+ * that could never look different from another, and its only script-visible
+ * effect belongs to a *computer* rather than a monitor; `engine/hardware.ts`
+ * records what that costs.
  *
  * The two sound controls are real. The chip switch changes what is played --
  * one voice or four -- and what the scripts are told they are being played on;
@@ -22,7 +26,6 @@ import type { GraphicsMode, Settings } from './settings.ts';
 export const GRAPHICS_MODES: { value: GraphicsMode; label: string }[] = [
   { value: 'ega', label: 'EGA' },
   { value: 'cga', label: 'CGA' },
-  { value: 'pcjr', label: 'PCjr' },
   { value: 'hercules', label: 'Hercules' },
 ];
 
@@ -35,7 +38,6 @@ export const GRAPHICS_MODES: { value: GraphicsMode; label: string }[] = [
  */
 const GRAPHICS_NOTE: Record<GraphicsMode, string> = {
   ega: 'sixteen colours, and the game laid out for a colour screen',
-  pcjr: 'the same sixteen colours; the game binds a PCjr keyboard',
   cga: 'the game told it is on CGA, still drawn in EGA colours until M12',
   hercules: 'the game laid out for a mono screen, still drawn in EGA colours until M13',
 };

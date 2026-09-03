@@ -850,9 +850,9 @@ export class Machine {
   setSoundChip(chip: SoundChip): void {
     this.sound.setChip(chip);
     this.state.setVar(VAR.SOUND_GENERATOR, SOUND_GENERATOR_VALUE[chip]);
-    // The computer type follows from the display and the chip together, so
-    // changing either one can change it: PCjr sound on ordinary pixels is a
-    // Tandy, and the scripts bind different keys for one.
+    // The chip is what the computer type is inferred from -- the PCjr's chip
+    // with ordinary graphics is a Tandy 1000, and the scripts give one its
+    // volume keys -- so changing it changes what the scripts are told.
     this.describeMachine();
   }
 
@@ -872,13 +872,13 @@ export class Machine {
   /**
    * Tell the scripts what machine this is.
    *
-   * Called whenever either choice changes and once at start-up, because a
-   * variable that agrees with the shell only until something is switched is
-   * the defect M9 was about.
+   * Called whenever a choice changes and once at start-up, because a variable
+   * that agrees with the shell only until something is switched is the defect
+   * M9 was about.
    */
   describeMachine(): void {
     this.state.setVar(VAR.MONITOR_TYPE, monitorTypeFor(this.displayMode));
-    this.state.setVar(VAR.COMPUTER_TYPE, computerTypeFor(this.displayMode, this.sound.chip));
+    this.state.setVar(VAR.COMPUTER_TYPE, computerTypeFor(this.sound.chip));
   }
 
   /**

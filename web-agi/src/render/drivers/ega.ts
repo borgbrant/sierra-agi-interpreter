@@ -43,10 +43,9 @@ export class EgaDriver implements DisplayDriver {
   /**
    * @param mode which adapter this driver is answering for
    *
-   * The PCjr's 160x200 mode is the sixteen-colour palette AGI was drawn for,
-   * so its pixels are these pixels and only the answer the scripts get differs
-   * -- which is why one class serves two modes rather than one of them being a
-   * copy of the other.
+   * One class serves all three until M12 and M13, reporting whichever mode it
+   * was asked for. That is what lets the shell say "chosen, but drawn in EGA's
+   * colours" truthfully rather than quietly ignoring the choice.
    */
   constructor(mode: DisplayMode = 'ega') {
     this.mode = mode;

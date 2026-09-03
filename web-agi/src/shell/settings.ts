@@ -18,11 +18,13 @@ import type { KeyValueStore } from '../storage/saves.ts';
 /**
  * Which display the game is drawn as.
  *
- * The four the original shipped, and it says so itself: the game's own
- * directory holds `CGA_GRAF.OVL`, `EGA_GRAF.OVL`, `HGC_GRAF.OVL` and
- * `JR_GRAF.OVL`, one driver per adapter. The list is the renderer's, not the
- * shell's -- a mode *is* a driver, and a setting that named modes the renderer
- * had never heard of would be a second vocabulary to keep in step.
+ * Three of the four the original shipped: the game's own directory holds
+ * `CGA_GRAF.OVL`, `EGA_GRAF.OVL`, `HGC_GRAF.OVL` and `JR_GRAF.OVL`, and the
+ * last of those has no counterpart here because a PCjr cannot look or behave
+ * differently from an EGA in this game -- see `engine/hardware.ts`. The list is
+ * the renderer's, not the shell's: a mode *is* a driver, and a setting that
+ * named modes the renderer had never heard of would be a second vocabulary to
+ * keep in step.
  */
 export type GraphicsMode = DisplayMode;
 
@@ -42,7 +44,10 @@ const KEY = 'web-agi:settings';
  */
 export const DEFAULT_SETTINGS: Settings = { graphics: 'ega', sound: 'pcjr' };
 
-const GRAPHICS: GraphicsMode[] = ['cga', 'ega', 'pcjr', 'hercules'];
+// Three, and a stored `pcjr` from before the PCjr was dropped falls back to
+// the default like any other value this list does not hold. `pick` is what
+// makes removing a mode safe rather than a reason to migrate storage.
+const GRAPHICS: GraphicsMode[] = ['cga', 'ega', 'hercules'];
 const SOUND: SoundChip[] = ['speaker', 'pcjr'];
 
 /** Read the settings back, falling back to the defaults for anything odd. */

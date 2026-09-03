@@ -34,8 +34,15 @@ import type { Frame } from '../frame.ts';
  *
  * Declared here rather than in the shell, because a mode *is* a driver: the
  * shell's setting is a choice between these, not a separate vocabulary.
+ *
+ * Three, not the four overlays the original shipped. `JR_GRAF.OVL` has no
+ * entry, because a PCjr driver would be this list's only member with nothing
+ * of its own: its 160x200 mode *is* the sixteen-colour palette AGI was drawn
+ * for, so its pixels are EGA's pixels, and the bundled game never
+ * distinguishes its monitor value. See `engine/hardware.ts` for the whole of
+ * what was lost by leaving it out.
  */
-export type DisplayMode = 'cga' | 'ega' | 'pcjr' | 'hercules';
+export type DisplayMode = 'cga' | 'ega' | 'hercules';
 
 export interface DisplayDriver {
   /** Which adapter this is. */
