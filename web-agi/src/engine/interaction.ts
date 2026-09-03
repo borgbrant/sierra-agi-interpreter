@@ -166,7 +166,7 @@ abstract class Question extends Interaction {
   /** Whether this question accepts a character. */
   protected abstract accepts(char: number): boolean;
 
-  override draw(frame: Frame, _machine: Machine): void {
+  override draw(frame: Frame, machine: Machine): void {
     // Black on white, like every other message box, and deliberately not the
     // machine's text attribute: that colours text written into character cells,
     // and a game that left it on white-on-black would otherwise ask its
@@ -175,6 +175,7 @@ abstract class Question extends Interaction {
       width: WINDOW_TEXT_WIDTH,
       column: this.column,
       row: this.row,
+      minRow: machine.layout.minPrintRow,
     });
     frame.window(window);
   }

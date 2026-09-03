@@ -26,8 +26,11 @@ import {
 } from '../render/text.ts';
 import { SoundPlayer } from '../audio/player.ts';
 import type { SoundChip } from '../audio/output.ts';
+import type { DisplayMode } from '../render/drivers/driver.ts';
 import { parseSound } from '../resources/sound.ts';
+import { computerTypeFor, MONITOR, monitorTypeFor } from './hardware.ts';
 import { Inventory } from './inventory.ts';
+import { defaultLayout, type ScreenLayout } from './layout.ts';
 import { KeyPress, type Interaction, type Key } from './interaction.ts';
 import { KeyBindings, MenuBar } from './menu.ts';
 import { noBlock, type Block } from './motion.ts';
@@ -170,6 +173,23 @@ export class Machine {
 
   /** Whether the status line is drawn. */
   statusLineVisible = false;
+
+  /**
+   * Where the status line, the input line and the print floor sit.
+   *
+   * The game's, not the engine's: `configure.screen` moves all three. See
+   * {@link ./layout.ts}.
+   */
+  layout: ScreenLayout = defaultLayout();
+
+  /**
+   * Which adapter the game is being drawn on.
+   *
+   * Held here because the scripts ask about it, not because anything here
+   * draws: what the pixels look like is the display driver's business, and the
+   * engine never reads this for anything but the reserved variables.
+   */
+  displayMode: DisplayMode = 'ega';
 
   /** Where the game's objects are now, as opposed to where they started. */
   readonly inventory: Inventory;
@@ -830,6 +850,54 @@ export class Machine {
   setSoundChip(chip: SoundChip): void {
     this.sound.setChip(chip);
     this.state.setVar(VAR.SOUND_GENERATOR, SOUND_GENERATOR_VALUE[chip]);
+    // The computer type follows from the display and the chip together, so
+    // changing either one can change it: PCjr sound on ordinary pixels is a
+    // Tandy, and the scripts bind different keys for one.
+    this.describeMachine();
+  }
+
+  /**
+   * Choose the adapter the game is drawn on.
+   *
+   * Two things follow, and only one of them is visible. The scripts are told
+   * what they are being displayed on, which is what this does; and the shell
+   * swaps the display driver, which is the renderer's business and happens
+   * there.
+   */
+  setDisplayMode(mode: DisplayMode): void {
+    this.displayMode = mode;
+    this.describeMachine();
+  }
+
+  /**
+   * Tell the scripts what machine this is.
+   *
+   * Called whenever either choice changes and once at start-up, because a
+   * variable that agrees with the shell only until something is switched is
+   * the defect M9 was about.
+   */
+  describeMachine(): void {
+    this.state.setVar(VAR.MONITOR_TYPE, monitorTypeFor(this.displayMode));
+    this.state.setVar(VAR.COMPUTER_TYPE, computerTypeFor(this.displayMode, this.sound.chip));
+  }
+
+  /**
+   * `toggle.monitor`: the game switching between colour and mono itself.
+   *
+   * The one command that writes the monitor variable from inside a script. The
+   * game offers it as "Graphics Mode <Ctrl-R>" and only on a CGA screen, which
+   * is the adapter the choice belonged to -- a composite monitor showing CGA's
+   * colour artefacts as grey was worth being able to turn off.
+   *
+   * What flips is the answer, not the palette: told it is mono, the game lays
+   * itself out for a mono screen while the driver goes on drawing in colour.
+   * That split is the whole of this milestone, and this is the one place a
+   * script can exercise it.
+   */
+  toggleMonitor(): void {
+    const own = monitorTypeFor(this.displayMode);
+    const now = this.state.getVar(VAR.MONITOR_TYPE);
+    this.state.setVar(VAR.MONITOR_TYPE, now === MONITOR.MONO ? own : MONITOR.MONO);
   }
 
   /**
@@ -918,6 +986,10 @@ export class Machine {
 
     this.textLayer.clear();
     this.textMode = false;
+    // The layout goes back to the interpreter's own. A new game gets to ask
+    // for its rows again, and the game does: logic 51 calls configure.screen
+    // during start-up.
+    this.layout = defaultLayout();
     this.textForeground = DEFAULT_TEXT_COLOUR;
     this.textBackground = DEFAULT_BACKGROUND_COLOUR;
     this.window = null;

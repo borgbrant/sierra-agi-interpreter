@@ -2,11 +2,14 @@
  * The shell's own controls: the settings the *player* chooses, as opposed to
  * the ones the game's menus offer.
  *
- * One of them names something the engine cannot do yet. That is deliberate
- * rather than an oversight: the choice is typed and kept where the others are,
- * so that building it later is a matter of reading a value instead of inventing
- * where the value lives. Until then it says plainly that nothing has changed on
- * screen, which is better than a control that silently does nothing.
+ * Every control does something now, and two of them do half of what they will.
+ * The graphics choice is two things at once: what the game is *drawn* in, and
+ * what the game is *told* it is being drawn on. The second half is real for all
+ * four modes -- a game told it is on a mono screen lays itself out for one, and
+ * a game told it is a PCjr binds different keys -- while the first is real for
+ * EGA and the PCjr only, because the PCjr's mode is the palette AGI targets.
+ * CGA and Hercules are answered for and drawn in EGA's colours until M12 and
+ * M13, and the control says so rather than implying more than it does.
  *
  * The two sound controls are real. The chip switch changes what is played --
  * one voice or four -- and what the scripts are told they are being played on;
@@ -22,6 +25,20 @@ export const GRAPHICS_MODES: { value: GraphicsMode; label: string }[] = [
   { value: 'pcjr', label: 'PCjr' },
   { value: 'hercules', label: 'Hercules' },
 ];
+
+/**
+ * What choosing each mode actually does, said plainly.
+ *
+ * A player who picks Hercules and sees EGA colours should be told why, and a
+ * player who picks it and sees the game's text move should be told that is the
+ * game doing it rather than a glitch.
+ */
+const GRAPHICS_NOTE: Record<GraphicsMode, string> = {
+  ega: 'sixteen colours, and the game laid out for a colour screen',
+  pcjr: 'the same sixteen colours; the game binds a PCjr keyboard',
+  cga: 'the game told it is on CGA, still drawn in EGA colours until M12',
+  hercules: 'the game laid out for a mono screen, still drawn in EGA colours until M13',
+};
 
 export const SOUND_CHIPS: { value: SoundChip; label: string }[] = [
   { value: 'speaker', label: 'PC speaker' },
@@ -58,11 +75,7 @@ export class Controls {
       this.#select('Graphics', GRAPHICS_MODES, options.settings.graphics, (value) => {
         options.settings.graphics = value;
         options.onChange(options.settings);
-        options.say(
-          value === 'ega'
-            ? 'graphics: EGA'
-            : `graphics: ${labelOf(GRAPHICS_MODES, value)} is chosen, but is not built yet — still drawing EGA`,
-        );
+        options.say(`graphics: ${labelOf(GRAPHICS_MODES, value)} — ${GRAPHICS_NOTE[value]}`);
       }),
     );
 

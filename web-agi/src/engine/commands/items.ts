@@ -103,5 +103,9 @@ export const ITEMS: Record<string, Handler> = {
   'set.scan.start': (m) => m.setScanStart(),
   'reset.scan.start': (m) => m.resetScanStart(),
   'init.joy': () => {},
-  'toggle.monitor': () => {},
+
+  // The game's own "Graphics Mode <Ctrl-R>", which it offers on a CGA screen
+  // and nowhere else. It tells the scripts the display is mono, and they lay
+  // themselves out accordingly; see Machine.toggleMonitor.
+  'toggle.monitor': (m) => m.toggleMonitor(),
 };

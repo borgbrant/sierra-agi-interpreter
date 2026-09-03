@@ -80,11 +80,11 @@ export class Cycle {
     const { machine } = this;
     machine.state.reset();
     machine.state.setVar(VAR.CYCLE_DELAY, 2);
-    machine.state.setVar(VAR.COMPUTER_TYPE, 0); // IBM PC
-    machine.state.setVar(VAR.MONITOR_TYPE, 3); // EGA
     // Whatever the player chose, rather than a constant: the variable and the
-    // voices being out of step is exactly what M9 was about.
+    // hardware being out of step is exactly what M9 was about, and the monitor
+    // and computer types are the same question asked of the display.
     machine.state.setVar(VAR.SOUND_GENERATOR, SOUND_GENERATOR_VALUE[machine.sound.chip]);
+    machine.describeMachine();
     // The game turns this down and up with its volume keys; nothing sets it
     // for the first time, so a game started at zero would play silently.
     machine.state.setVar(VAR.SOUND_VOLUME, MAX_SOUND_VOLUME);

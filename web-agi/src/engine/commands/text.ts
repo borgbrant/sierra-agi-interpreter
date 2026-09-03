@@ -41,6 +41,10 @@ function show(m: Machine, message: string, column?: number, row?: number, width?
     width: width ?? WINDOW_TEXT_WIDTH,
     column,
     row,
+    // The floor the game asked for with `configure.screen`, so a window placed
+    // at the top of the screen stops where the game says rather than where
+    // the renderer assumed.
+    minRow: m.layout.minPrintRow,
   });
 
   if (m.state.getFlag(FLAG.LEAVE_WINDOW_OPEN)) {
@@ -171,9 +175,15 @@ export const TEXT: Record<string, Handler> = {
     m.statusLineVisible = false;
   },
 
-  // The screen layout is fixed at the original's 40x25, so a script asking for
-  // the layout it already has is accepted and ignored.
-  'configure.screen': () => {},
+  // Where the status line, the input line and the print floor go. The bundled
+  // game calls this once with the numbers the engine would have assumed
+  // anyway; see `engine/layout.ts` for why it is worth honouring regardless.
+  'configure.screen': (m, [minPrintRow, inputRow, statusRow]) => {
+    m.layout = { minPrintRow: minPrintRow!, inputRow: inputRow!, statusRow: statusRow! };
+  },
+
+  // Scrolling the 40x25 grid inside a larger one, which no AGI v2 game does:
+  // the interpreter's window is the whole screen.
   'set.upper.left': () => {},
   'shake.screen': () => {},
 };

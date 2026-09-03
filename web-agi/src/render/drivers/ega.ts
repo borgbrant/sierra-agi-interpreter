@@ -15,9 +15,9 @@ import {
   DISPLAY_HEIGHT,
   DISPLAY_WIDTH,
   PALETTE_RGB,
-  PICTURE_TOP,
   PIXEL_ASPECT,
 } from '../display.ts';
+import { PICTURE_ROW } from '../../engine/layout.ts';
 import type { Frame } from '../frame.ts';
 import { TRANSPARENT, type Cel } from '../sprite.ts';
 import { clearRows, drawText, drawWindow, IBM_CELL } from '../text.ts';
@@ -60,7 +60,7 @@ export class EgaDriver implements DisplayDriver {
           break;
 
         case 'picture':
-          this.display.drawScreen(layer.screen, PICTURE_TOP, PIXEL_ASPECT);
+          this.display.drawScreen(layer.screen, layer.row * IBM_CELL.height, PIXEL_ASPECT);
           break;
 
         case 'cells':
@@ -107,7 +107,7 @@ export class EgaDriver implements DisplayDriver {
    */
   #drawCel(cel: Cel, top: number): void {
     const left = Math.floor((this.display.width - cel.width * PIXEL_ASPECT) / 2);
-    const y0 = PICTURE_TOP + top;
+    const y0 = PICTURE_ROW * IBM_CELL.height + top;
 
     for (let y = 0; y < cel.height; y++) {
       for (let x = 0; x < cel.width; x++) {

@@ -81,6 +81,10 @@ try {
    * context is waited for.
    */
   const settings = loadSettings(storage);
+  // Both halves of the choice, before the first cycle: the scripts read the
+  // monitor and computer types during start-up, and a game told afterwards has
+  // already built its menus and bound its keys for the wrong machine.
+  machine.setDisplayMode(settings.graphics);
   machine.setSoundChip(settings.sound);
 
   // The renderer is built after the settings are read, so the first frame is
@@ -90,9 +94,13 @@ try {
   const controls = new Controls(shell.tools, {
     settings,
     onChange: (chosen) => {
+      machine.setDisplayMode(chosen.graphics);
       machine.setSoundChip(chosen.sound);
       // A driver keeps nothing between frames, so a mode can change mid-room:
-      // the next frame is repainted in full on the new one.
+      // the next frame is repainted in full on the new one. What the scripts
+      // were told changes with it, but they read it when they lay themselves
+      // out -- so a mode switched mid-game shows up in the game's own layout
+      // only from the next room, exactly as the original's startup choice did.
       if (renderer.setMode(chosen.graphics)) paint();
       saveSettings(storage, chosen);
     },

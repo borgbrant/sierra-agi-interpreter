@@ -166,9 +166,6 @@ export class InventoryScreen extends Interaction {
 /** How far below the picture's top the close-up sits, in picture rows. */
 const CLOSE_UP_TOP = 20;
 
-/** The row the close-up's "press ENTER" sits on. */
-const CLOSE_UP_PROMPT_ROW = 23;
-
 export class ObjectCloseUp extends Interaction {
   readonly cel: Cel | undefined;
   readonly description: string;
@@ -192,10 +189,12 @@ export class ObjectCloseUp extends Interaction {
     lines.forEach((line, index) => {
       frame.text(line, 1, 1 + index, machine.textForeground, machine.textBackground);
     });
+    // On the input row, wherever the game has put it: the close-up covers the
+    // screen, so its instruction goes where the player is used to looking.
     frame.text(
       'Press ENTER to continue.',
       1,
-      CLOSE_UP_PROMPT_ROW,
+      machine.layout.inputRow,
       machine.textForeground,
       machine.textBackground,
     );

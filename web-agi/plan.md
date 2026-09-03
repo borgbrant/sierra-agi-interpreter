@@ -3,7 +3,7 @@
 Companion to [spec.md](spec.md). The spec says *what* to build; this says in what
 order, in which files, and how each step is proven to work.
 
-> **M0-M10 are done and shipped. M11-M13 are specified and not started.** The
+> **M0-M11 are done and shipped. M12-M13 are specified and not started.** The
 > milestones are kept as they were written, for the reasoning behind the
 > sequencing and for the format measurements in the next section. They are not a
 > description of the code as built: several modules ended up named or split
@@ -23,7 +23,7 @@ M7  Sound                     complete
 M8  Save and restore          complete
 M9  The sound chip switch     complete
 M10 The display driver seam   complete
-M11 What the scripts see      not started
+M11 What the scripts see      complete
 M12 CGA                       not started
 M13 Hercules                  not started
 ```
@@ -897,13 +897,17 @@ two-colour driver handed a fifteen would have read past the end of its palette.
 
 ---
 
-## M11 — What the scripts are drawn on — not started
+## M11 — What the scripts are drawn on — complete
 
 The half of the graphics work that has nothing to do with pixels, and the half
 that is testable. The game asks what it is being displayed on and lays itself
 out accordingly, and none of that needs a new palette to build or to see.
 
 ### Grounding: what the scripts actually ask
+
+The numbers below were the plan's, written from a first pass over the scripts.
+Three of the four turned out to be wrong, and they are left standing because
+the corrections are the interesting part of the milestone:
 
 ```text
 tests of the monitor-type variable   27, of which 26 are "is this mono?"
@@ -913,29 +917,55 @@ what those branches do               move text between rows 21/22 and 23/24,
 tests of the computer-type variable  11, all in the help screen (logic 55)
 ```
 
-So the scripts distinguish **mono from everything else**, and nothing more: CGA,
-PCjr and EGA all take the same path. The computer type is a separate question,
-and the game reads it only to choose which help page to show -- keyboard,
-joystick or mouse.
+The monitor count held: 27 tests at 26 sites, and 26 of them ask `equaln(26, 2)`
+and nothing else. The scripts distinguish **mono from everything else**, and the
+twenty-seventh test is logic 0 asking for an IBM PC that is neither mono nor
+EGA -- which is to say CGA, and is the only script-visible difference that mode
+has.
 
-`configure.screen` is the command the mono branch calls to move the picture area
-and the input row, and this engine implements it as a no-op. Until it is real,
-Hercules cannot be anything but wrong, and the rows the engine draws text on are
-constants rather than something the game may move.
+What was wrong:
+
+- **`configure.screen` is not the mono branch's.** Logic 51 calls it once, at
+  start-up, unconditionally, with `(1, 23, 0)` -- exactly the numbers the engine
+  had assumed. So making it real fixes nothing in this game and removes an
+  assumption instead, which is a smaller thing than the plan thought and worth
+  doing anyway.
+- **The mono branches do not move the engine's rows.** They move the *game's*:
+  it drops a line it would otherwise print, or prints it on another row, or
+  narrows an input field from 38 characters to 28. The engine's layout is not
+  involved, and could not be -- the scripts address rows directly.
+- **The computer type is not only the help screen's.** Ten sites, in logics 0,
+  51 and 55: logic 0 builds a different menu for it, logic 51 binds different
+  keys, and only logic 55 shows a different page. The first two are the ones
+  that can be seen without reading a help page, and they are what this milestone
+  is tested against.
+- **View 151 is the colour view, not the mono one.** Logic 38 loads 151 when the
+  display is not mono and 146 when it is, at two sites. The pair was right and
+  the direction was backwards.
 
 ### Files
 
 ```text
+src/engine/layout.ts          the three rows a game may move, in one place
+src/engine/hardware.ts        what the scripts are told, and what was measured
 src/engine/commands/text.ts   configure.screen stops being a no-op
-src/render/text.ts            the rows become state rather than constants
-src/engine/cycle.ts           the monitor and computer variables follow the choice
-(no new driver)               EGA's pixels are the PCjr's pixels, so M10's
-                              EgaDriver already answers for it; what M11 adds
-                              is the answer the scripts get
-src/shell/controls.ts         the select stops saying "not built yet" for PCjr
-src/shell/settings.ts         the choice survives a reload (M9 built this;
-                              the graphics mode is already kept in it)
+src/engine/commands/items.ts  toggle.monitor stops being a no-op
+src/engine/machine.ts         setDisplayMode, and the two variables kept in step
+src/engine/cycle.ts           the variables follow the choice at start-up
+src/engine/present.ts         the status and input rows come from the game
+src/engine/snapshot.ts        the layout is part of a saved game
+src/render/text.ts            the rows stop being constants here
+src/render/frame.ts           the picture's row travels in the frame
+src/shell/controls.ts         every mode says what choosing it does
+src/main.ts                   the choice reaches the scripts, not only the driver
 ```
+
+No new driver. The PCjr's 160x200 mode is the sixteen-colour palette AGI
+targets, so M10's `EgaDriver` already answers for it and what M11 adds is the
+answer the *scripts* get. The plan's step 3 wanted PCjr built first to prove
+that switching drivers works with no rendering to hide a mistake behind; M10
+proved that with a stub driver at Hercules' size, so the step was already
+paid for.
 
 ### Order of work
 
@@ -955,12 +985,59 @@ src/shell/settings.ts         the choice survives a reload (M9 built this;
 engine it is mono moves the input row and shows the game's mono view, while
 still drawn in EGA colours; and the choice survives a reload.
 
+### What it is done by instead
+
+The middle clause could not be met as written, because the engine does not move
+the input row on a mono screen -- the game does, for itself, and this game never
+asks `configure.screen` for a different one. What replaced it are five
+consequences that can be seen rather than one that cannot:
+
+```text
+CGA      the Options menu gains "Graphics Mode <Ctrl-R>", and only for CGA
+PCjr     the digit keys 1-0 are bound, to the controllers every other machine
+         reaches with F1-F10 -- a chiclet keyboard with no function keys
+Tandy    `=` `-` and `+` are bound, and the volume they change works; on a PC
+         speaker the game offers neither
+mono     the opening credits on rows 23 and 24 are not printed at all
+Ctrl-R   flips the answer between mono and the chosen display, and back
+```
+
+The **Tandy** is the one that needed a decision. The computer type is a separate
+variable from the monitor and the shell has no control for it, so it is inferred
+from the two choices that exist: a PCjr display makes a PCjr, the PCjr's sound
+chip on other pixels makes a Tandy 1000, and anything else is an IBM PC. A third
+select would have been more direct and worse -- it would let a player describe a
+PCjr with a PC speaker, and the game would then be told something untrue about
+the machine it is running on.
+
+The game's own branches turned out to name two of those machines more precisely
+than the documentation does. Only computer type 1 is given the number keys, and
+they go to the controllers everything else reaches with the function keys; only
+computer type 2 is given volume keys, and the PCjr chip is the only one in the
+list whose volume can be changed at all. A PCjr and a Tandy 1000, identified by
+what the game does for them rather than by a table.
+
+### What the tests found
+
+One defect, and it was in the tests rather than the engine: an early version
+asserted the command line was drawn on the input row after 120 cycles of the
+opening, and it is not -- the opening has written its credits across rows 23 and
+24, and the command line yields to text a script put there. That rule was M6's
+and it is right; the test was reading a correct behaviour as a missing row.
+
+The thirteen tests added are consequences rather than variables. Only two of
+them read a reserved variable at all; the rest ask whether a menu item exists,
+whether a key is bound, and whether a line of the opening was printed -- which
+is what a player would notice, and what a wrong answer would actually break.
+
 ---
 
 ## M12 — CGA — not started
 
 Four colours, and the sixteen the game draws in reached by dithering pairs of
-pixels. Pure rendering: the scripts cannot tell CGA from EGA, as M11 measured.
+pixels. Almost pure rendering: M11 found the one script-visible difference CGA
+has -- logic 0 offers it a graphics-mode toggle and offers it to nothing else --
+and that half is already built, so what is left here is the palette.
 
 The mapping cannot be read out of the original driver -- `CGA_GRAF.OVL` is not
 bundled, because the repository ships only the game's resource files. It is

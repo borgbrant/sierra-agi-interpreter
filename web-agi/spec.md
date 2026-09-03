@@ -23,8 +23,8 @@ stack        TypeScript + Vite, no UI framework
 game data    bundled with the app at build time
 v1 scope     playable core; no sound, no save/restore   (M0-M6, shipped)
 v2 scope     sound (M7) and save/restore (M8), both shipped
-v3 scope     the sound chip switch (M9) and the display seam (M10), both
-             shipped; the modes themselves (M11-M13)
+v3 scope     the sound chip switch (M9), the display seam (M10) and what the
+             scripts are told (M11), all shipped; the palettes (M12-M13)
 code sharing npm workspaces, web-agi imports agi-extract
 ```
 
@@ -586,7 +586,7 @@ mean.
 A mode is two things at once, and that is the whole difficulty -- and the reason
 the work is four milestones rather than one. It is an adapter's palette to draw
 with (M10 made room for it, M12 and M13 build two), and it is an answer the
-scripts get (M11). The two are worth separating because they are
+scripts get (M11, shipped). The two are worth separating because they are
 checked in entirely different ways: a seam and an answer can be tested, while a
 palette can only be looked at.
 
@@ -600,18 +600,30 @@ Hercules   two colours, its own font, its own object drawing -- and a layout
 ```
 
 The scripts ask about the display in twenty-seven places, and twenty-six of them
-ask one question: *is this mono?* CGA, PCjr and EGA all take the same path, so
-those two modes are pure rendering. Hercules is not: on a mono screen the game
-moves its text between rows 21/22 and 23/24, calls `configure.screen` — a
-command this engine currently ignores — and twice shows a different view. A
-Hercules mode that draws in two colours without answering the scripts would lay
-itself out wrongly; one that answers without drawing would be an EGA game with
-its text in the wrong place.
+ask one question: *is this mono?* CGA, PCjr and EGA all take the same path. The
+twenty-seventh is logic 0 asking for an IBM PC that is neither mono nor EGA —
+which is CGA — and offering it a graphics-mode toggle, the one script-visible
+difference that mode has.
 
-The computer type is a separate variable from the monitor, read in eleven places
-and all of them in the help screen, which offers keyboard, joystick or mouse
-instructions depending on the machine. PCjr is where the two settings meet: it
-is also where the four-voice sound of M9 comes from.
+On a mono screen the game lays itself out differently, and it does so itself:
+it drops a line it would otherwise print, prints another on row 24 instead of
+21, narrows an input field from 38 characters to 28, and twice loads a different
+view. None of that asks the interpreter to move anything. So a Hercules mode
+that draws in two colours without answering the scripts would lay itself out
+wrongly, and one that answers without drawing is exactly what M11 ships: the
+mono layout, in EGA's colours.
+
+`configure.screen` is real as of M11. The bundled game calls it once, at
+start-up and unconditionally, with the three rows the engine had assumed —
+status line 0, input line 23, nothing printed above row 1 — so honouring it
+changes nothing here and removes an assumption from three modules.
+
+The computer type is a separate variable from the monitor, read at ten sites in
+logics 0, 51 and 55: a different menu, different key bindings, and four
+different help pages. The shell has no control for it, so it is inferred from
+the two choices that exist — a PCjr display makes a PCjr, the PCjr's sound chip
+on other pixels makes a Tandy 1000, anything else an IBM PC. That is where the
+two settings meet, and it is where the four-voice sound of M9 comes from.
 
 Each mode is a **display driver**, a layer outside the engine that the engine
 draws through — one per adapter, as the original had one overlay per adapter.
@@ -761,19 +773,23 @@ the window size.
 Deliberately thin: a page holding the canvas, a title, an error surface, and a
 row of controls for the things the player chooses rather than the game.
 
-Three of those controls exist, and one of them still names work that is not
-finished:
+Three controls, and every one of them does something:
 
 ```text
-Graphics    CGA / EGA / PCjr / Herc.  wired to a driver each; only EGA's
-                                      draws in its own colours (M11-M13)
+Graphics    CGA / EGA / PCjr / Herc.  a driver each, and the scripts told
+                                      which; EGA's and the PCjr's draw in
+                                      their own colours, CGA's and Hercules'
+                                      in EGA's until M12 and M13
 Sound chip  PC speaker / PCjr         wired: one voice, or four
 Sound on    on / off                  wired: the game's own sound flag
 ```
 
-The unbuilt one is a control that says so rather than one that quietly does
-nothing, and the choice it records is typed and kept where the others are, so
-building it means reading a value rather than deciding where the value lives.
+The graphics choice is two things at once — what the game is drawn in, and what
+the game is *told* it is being drawn on. The second half is real for all four
+modes: a game told it is on a mono screen lays its opening out for one, and a
+game told it is a PCjr binds a PCjr's keyboard. The first is real for two. Each
+choice says which of the two it is getting rather than implying more than it
+does.
 
 The two sound controls are wired. The chip switch changes what is played and
 what the scripts are told they are being played on, through one entry point so
@@ -888,7 +904,9 @@ M10 The display driver seam
 
 M11 What the scripts are drawn on
     configure.screen for real, the monitor and computer variables, PCjr.
-    Ends with: the mono layout moves where the game asks, still in EGA.
+    Ends with: the game lays itself out for the machine it is told it is on
+    -- a CGA menu item, a PCjr keyboard, a Tandy's volume keys, a mono
+    opening -- while still drawn in EGA colours.
 
 M12 CGA
     Four colours, and sixteen reached by dithering.
@@ -903,7 +921,7 @@ M13 Hercules
 M0  complete    M4  complete    M8  complete     M12 not started
 M1  complete    M5  complete    M9  complete     M13 not started
 M2  complete    M6  complete    M10 complete
-M3  complete    M7  complete    M11 not started
+M3  complete    M7  complete    M11 complete
 ```
 
 ## Later phases

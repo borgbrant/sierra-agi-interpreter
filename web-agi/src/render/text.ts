@@ -1,10 +1,11 @@
 /**
  * Text, in character cells.
  *
- * The display is a 40x25 grid of 8x8 characters and AGI treats it as one: the
- * status line is row 0, the picture occupies rows 1-21, and the prompt lives on
- * rows 22-24. Every text command addresses cells, never pixels, so this module
- * works in cells and converts on the way to the framebuffer.
+ * The display is a 40x25 grid of characters and AGI treats it as one: the
+ * picture occupies rows 1-21, and the status line, the input line and the
+ * floor for printed text are wherever the game put them -- see
+ * `engine/layout.ts`. Every text command addresses cells, never pixels, so
+ * this module works in cells and converts on the way to the framebuffer.
  *
  * Message windows are the exception that proves it. A window is positioned in
  * cells and sized from its wrapped text, but it is drawn with a one-pixel
@@ -45,9 +46,6 @@ export interface CellMetrics {
 /** The 8x8 IBM font in an 8x8 cell: what EGA, CGA and the PCjr draw. */
 export const IBM_CELL: CellMetrics = { width: CHAR_WIDTH, height: CHAR_HEIGHT, glyph };
 
-/** Row 0 is the status line, and the last three rows are the prompt area. */
-export const STATUS_ROW = 0;
-export const PROMPT_ROW = 23;
 
 /**
  * How wide a message window's text may be.
@@ -230,6 +228,14 @@ export function layOutWindow(
     foreground?: number | undefined;
     background?: number | undefined;
     border?: number | undefined;
+    /**
+     * The first row the window's text may sit on.
+     *
+     * AGI's "minimum print line", which a script sets with
+     * `configure.screen`. It is why a window asked for at row 0 lands at row 1
+     * instead of covering the status line.
+     */
+    minRow?: number | undefined;
   } = {},
 ): TextWindow {
   const width = options.width ?? WINDOW_TEXT_WIDTH;
@@ -238,7 +244,15 @@ export function layOutWindow(
   const textHeight = lines.length;
 
   const column = clamp(options.column ?? Math.floor((COLUMNS - textWidth) / 2), 0, COLUMNS - textWidth);
-  const row = clamp(options.row ?? Math.floor((ROWS - textHeight) / 2), 1, Math.max(1, ROWS - textHeight - 1));
+  // The floor is the game's; the ceiling is the screen's. The bottom row is
+  // kept clear whatever the game does with its input line, because a window
+  // flush with the last row has no margin below its border.
+  const minRow = options.minRow ?? 1;
+  const row = clamp(
+    options.row ?? Math.floor((ROWS - textHeight) / 2),
+    minRow,
+    Math.max(minRow, ROWS - textHeight - 1),
+  );
 
   return {
     lines,

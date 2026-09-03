@@ -26,6 +26,7 @@
  */
 import { Screens } from '../render/screens.ts';
 import type { AddedCel } from './animate.ts';
+import { DEFAULT_LAYOUT, type ScreenLayout } from './layout.ts';
 import type { Machine } from './machine.ts';
 
 /**
@@ -138,6 +139,18 @@ export interface Snapshot {
   menuEnabled: boolean;
   lastLine: string;
   cursorChar: string;
+
+  /**
+   * Where the game has put its status line, input line and print floor.
+   *
+   * Optional, and not because it might be missing from a save this engine
+   * writes -- it never is. A save written before the layout existed is a save
+   * from an engine that could not have had any layout but the default, so
+   * reading one back as the default is a fact about the old format rather than
+   * a guess. That is cheaper than a format bump, which would have thrown away
+   * every existing save to record a value all of them had.
+   */
+  layout?: ScreenLayout;
 }
 
 /** What game this machine is running, for a snapshot to be checked against. */
@@ -186,6 +199,7 @@ export function captureSnapshot(machine: Machine): Snapshot {
     menuEnabled: machine.menuBar.enabled,
     lastLine: machine.lastLine,
     cursorChar: machine.prompt.cursorChar,
+    layout: { ...machine.layout },
   };
 }
 
@@ -228,6 +242,7 @@ export function applySnapshot(machine: Machine, snapshot: Snapshot): void {
   machine.menuBar.enabled = snapshot.menuEnabled;
   machine.lastLine = snapshot.lastLine;
   machine.prompt.cursorChar = snapshot.cursorChar;
+  machine.layout = { ...(snapshot.layout ?? DEFAULT_LAYOUT) };
 
   machine.loadedPictures.clear();
   for (const id of snapshot.loadedPictures) machine.loadedPictures.add(id);

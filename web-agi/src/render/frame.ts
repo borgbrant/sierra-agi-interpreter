@@ -25,8 +25,8 @@ import type { TextLayer, TextWindow } from './text.ts';
 export type FrameLayer =
   /** The whole display in one colour, as text mode and a text screen want. */
   | { kind: 'fill'; colour: number }
-  /** A 160x168 screen, into the picture area. */
-  | { kind: 'picture'; screen: Bytes }
+  /** A 160x168 screen, from a character row down. */
+  | { kind: 'picture'; screen: Bytes; row: number }
   /** The text plane: every cell that has been written, transparent elsewhere. */
   | { kind: 'cells'; cells: TextLayer }
   /** A run of characters from a cell, clipped at the right edge. */
@@ -69,9 +69,15 @@ export class Frame {
     return this;
   }
 
-  /** Show a 160x168 screen in the picture area. */
-  picture(screen: Bytes): this {
-    this.layers.push({ kind: 'picture', screen });
+  /**
+   * Show a 160x168 screen in the picture area.
+   *
+   * The row comes from the engine rather than from the driver, so that where
+   * the picture sits is one number in one place instead of the same constant
+   * written into the renderer and every driver.
+   */
+  picture(screen: Bytes, row: number): this {
+    this.layers.push({ kind: 'picture', screen, row });
     return this;
   }
 

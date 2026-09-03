@@ -13,6 +13,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { PICTURE_ROW } from '../src/engine/layout.ts';
 import { Display } from '../src/render/display.ts';
 import type { DisplayDriver, DisplayMode } from '../src/render/drivers/driver.ts';
 import { EgaDriver } from '../src/render/drivers/ega.ts';
@@ -29,7 +30,7 @@ function everything(): Frame {
 
   return new Frame()
     .fill(2)
-    .picture(new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(5))
+    .picture(new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(5), PICTURE_ROW)
     .cells(cells)
     .text('status', 0, 0, 0, 15)
     .rows(24, 24, 1)
@@ -107,7 +108,7 @@ class WideDriver implements DisplayDriver {
         case 'picture':
           // 160 wide becomes 640 and 168 tall becomes 336: the same picture,
           // stretched to a screen the engine has never heard of.
-          this.display.drawScreen(layer.screen, this.cell.height, 4, 2);
+          this.display.drawScreen(layer.screen, layer.row * this.cell.height, 4, 2);
           break;
         case 'cells':
           layer.cells.draw(this.display, this.cell);

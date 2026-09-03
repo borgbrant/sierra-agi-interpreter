@@ -8,7 +8,8 @@
  * ```text
  * 1  the picture, with the objects already composited into it
  * 2  text written into cells, which the picture shows through
- * 3  the status line and the command line, which the engine owns
+ * 3  the status line and the command line, which the engine owns -- on the
+ *    rows the game asked for, not on rows this module decided
  * 4  a window a script left open
  * 5  whatever the game is waiting for, which is always on top
  * ```
@@ -20,7 +21,8 @@
  */
 import { Frame } from '../render/frame.ts';
 import type { Renderer, ScreenView } from '../render/renderer.ts';
-import { COLUMNS, PROMPT_ROW, STATUS_ROW } from '../render/text.ts';
+import { COLUMNS } from '../render/text.ts';
+import { PICTURE_ROW } from './layout.ts';
 import { DEFAULT_PROMPT } from '../input/prompt.ts';
 import type { Machine } from './machine.ts';
 import { FLAG, PROMPT_STRING, VAR } from './state.ts';
@@ -69,13 +71,22 @@ export function buildFrame(machine: Machine, view: ScreenView = 'visual'): Frame
     // Black behind the status line and the input area. The text layer draws
     // over both; this is what shows where it has written nothing.
     frame.fill(CHROME_COLOUR);
-    frame.picture(view === 'visual' ? machine.screens.visual : machine.screens.priority);
+    frame.picture(
+      view === 'visual' ? machine.screens.visual : machine.screens.priority,
+      PICTURE_ROW,
+    );
   }
 
   frame.cells(machine.textLayer);
 
   if (machine.statusLineVisible) {
-    frame.text(statusLine(machine), 0, STATUS_ROW, STATUS_FOREGROUND, STATUS_BACKGROUND);
+    frame.text(
+      statusLine(machine),
+      0,
+      machine.layout.statusRow,
+      STATUS_FOREGROUND,
+      STATUS_BACKGROUND,
+    );
   }
 
   // The command line is only offered when the game is actually listening, and
@@ -87,12 +98,18 @@ export function buildFrame(machine: Machine, view: ScreenView = 'visual'): Frame
     machine.inputAccepted &&
     machine.prompt.visible &&
     !machine.pending &&
-    machine.textLayer.rowIsEmpty(PROMPT_ROW)
+    machine.textLayer.rowIsEmpty(machine.layout.inputRow)
   ) {
     // The marker the line starts with is string 0, which is where AGI keeps it
     // and where this game writes its `]`.
     const marker = machine.state.getString(PROMPT_STRING) || DEFAULT_PROMPT;
-    frame.text(machine.prompt.render(marker).padEnd(COLUMNS), 0, PROMPT_ROW, 15, 0);
+    frame.text(
+      machine.prompt.render(marker).padEnd(COLUMNS),
+      0,
+      machine.layout.inputRow,
+      15,
+      0,
+    );
   }
 
   if (machine.window) frame.window(machine.window);
