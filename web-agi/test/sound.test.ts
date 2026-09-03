@@ -2,13 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { SoundPlayer } from '../src/audio/player.ts';
-import { WebAudioOutput, type SoundOutput } from '../src/audio/output.ts';
+import { WebAudioOutput, type SoundChip, type SoundOutput } from '../src/audio/output.ts';
 import { buildHandlers } from '../src/engine/commands/index.ts';
 import { Cycle } from '../src/engine/cycle.ts';
 import { Machine } from '../src/engine/machine.ts';
 import { Vocabulary } from '../src/resources/words.ts';
 import { enterRoom } from '../src/engine/room.ts';
-import { FLAG, MAX_SOUND_VOLUME, VAR } from '../src/engine/state.ts';
+import { FLAG, MAX_SOUND_VOLUME, SOUND_GENERATOR_VALUE, VAR } from '../src/engine/state.ts';
 import { ResourceManager } from '../src/resources/manager.ts';
 import { parseObjectFile } from '../src/resources/objects.ts';
 import {
@@ -21,6 +21,8 @@ import {
   Sound,
   TICKS_PER_SECOND,
 } from '../src/resources/sound.ts';
+import { DEFAULT_SETTINGS, loadSettings, saveSettings } from '../src/shell/settings.ts';
+import type { KeyValueStore } from '../src/storage/saves.ts';
 import { DiskSource } from './helpers/disk-source.ts';
 
 const source = await DiskSource.open();
@@ -38,10 +40,14 @@ class FakeOutput implements SoundOutput {
   from: number[] = [];
   stops = 0;
   volume = 1;
+  chip: SoundChip = 'pcjr';
 
   play(sound: Sound, fromMs = 0): void {
     this.played.push(sound);
     this.from.push(fromMs);
+  }
+  setChip(chip: SoundChip): void {
+    this.chip = chip;
   }
   stop(): void {
     this.stops++;
@@ -278,6 +284,185 @@ test('the game asks for its theme when it starts', () => {
   assert.equal(output.played.length, 1, 'the opening starts one sound');
   assert.ok(output.played[0]!.durationMs > 30_000, 'and it is the long theme');
   assert.equal(m.stubs.size, 0, 'without reaching anything unimplemented');
+});
+
+// --- The sound chip --------------------------------------------------------
+
+test('a game is a PCjr until someone says otherwise', () => {
+  // The engine played four voices while telling the game it was a PC speaker,
+  // and the two had to be made to agree. Agreeing downwards would take away
+  // half the notes, so the speaker is a choice made on purpose.
+  const { m } = machine();
+  const cycle = new Cycle(m);
+  cycle.start(1);
+
+  assert.equal(m.sound.chip, 'pcjr');
+  assert.equal(m.state.getVar(VAR.SOUND_GENERATOR), SOUND_GENERATOR_VALUE.pcjr);
+});
+
+test('choosing a chip tells the scripts as well as the speakers', () => {
+  const { m } = machine();
+  const cycle = new Cycle(m);
+  cycle.start(1);
+
+  m.setSoundChip('speaker');
+  assert.equal(m.sound.chip, 'speaker');
+  assert.equal(m.state.getVar(VAR.SOUND_GENERATOR), SOUND_GENERATOR_VALUE.speaker);
+
+  m.setSoundChip('pcjr');
+  assert.equal(m.state.getVar(VAR.SOUND_GENERATOR), SOUND_GENERATOR_VALUE.pcjr);
+});
+
+test('changing chip mid-sound picks the same sound up where it had got to', () => {
+  const { m, output } = machine();
+  m.playSound(soundIds[0]!, 60);
+  m.tickSound(1000);
+
+  m.setSoundChip('speaker');
+
+  assert.equal(output.chip, 'speaker');
+  assert.equal(output.played.length, 2, 'the running sound is re-issued');
+  assert.equal(output.from[1], 1000, 'from where it had got to');
+});
+
+test('changing chip does not move the end of the sound, or the flag', () => {
+  // The rule volume already keeps. A player who switches hardware must not
+  // change when a script stops waiting -- that is the game's pacing, and it is
+  // not a sound setting.
+  const { m, output } = machine();
+  m.playSound(soundIds[0]!, 61);
+  const duration = output.played[0]!.durationMs;
+
+  m.tickSound(duration / 2);
+  m.setSoundChip('speaker');
+  m.tickSound(duration / 2 - 1);
+  assert.equal(m.state.getFlag(61), false, 'not a moment early');
+
+  m.tickSound(1);
+  assert.equal(m.state.getFlag(61), true, 'nor a moment late');
+});
+
+test('choosing the chip already in use changes nothing', () => {
+  const { m, output } = machine();
+  m.playSound(soundIds[0]!, 0);
+  m.setSoundChip('pcjr');
+
+  assert.equal(output.played.length, 1, 'the sound is not restarted');
+});
+
+test('a speaker plays one voice, and a PCjr plays four', () => {
+  const sound = sounds.find((s) => s.channels.every((c) => c.notes.length > 0))!;
+
+  const pcjr = fakeContext();
+  const four = new WebAudioOutput(pcjr.context as unknown as AudioContext);
+  four.setChip('pcjr');
+  four.play(sound);
+
+  const beeper = fakeContext();
+  const one = new WebAudioOutput(beeper.context as unknown as AudioContext);
+  one.setChip('speaker');
+  one.play(sound);
+
+  assert.equal(pcjr.started.length, 4, 'three tone channels and the noise');
+  assert.equal(beeper.started.length, 1, 'the first tone channel, and nothing else');
+});
+
+test('a speaker has no volume, only silence', () => {
+  // Attenuation shapes the first channel through fourteen of its sixteen steps,
+  // and a speaker can only be on or off. 15 stays what it always was: a rest.
+  const sound = sounds.find((s) =>
+    s.channels[0]!.notes.some((note) => note.attenuation > 0 && note.attenuation < 15),
+  )!;
+
+  const beeper = fakeContext();
+  const output = new WebAudioOutput(beeper.context as unknown as AudioContext);
+  output.setChip('speaker');
+  output.play(sound);
+
+  const gains = beeper.events.filter((e) => e.param === 'gain').map((e) => e.value);
+  assert.ok(gains.length > 0);
+  assert.deepEqual([...new Set(gains)].sort(), [0, 1], 'on or off, nothing between');
+
+  // And the same sound on a PCjr uses the steps in between.
+  const pcjr = fakeContext();
+  const rich = new WebAudioOutput(pcjr.context as unknown as AudioContext);
+  rich.play(sound);
+  const shaded = pcjr.events
+    .filter((e) => e.param === 'gain')
+    .some((e) => e.value > 0 && e.value < 1);
+  assert.equal(shaded, true);
+});
+
+test('a speaker falls silent when the piece is not on its one voice', () => {
+  // Not a defect: a beeper has one voice, and if there is nothing left on it
+  // there is nothing to hear. What must not change with it is the timing, and
+  // that is the player's clock rather than the output's business.
+  const sound = sounds[0]!;
+  const beeper = fakeContext();
+  const output = new WebAudioOutput(beeper.context as unknown as AudioContext);
+  output.setChip('speaker');
+  output.play(sound, (sound.channels[0]!.durationTicks / 60) * 1000 + 1);
+
+  assert.equal(beeper.started.length, 0, 'nothing to play');
+});
+
+// --- Remembering the choice -------------------------------------------------
+
+/** localStorage, as a Map, so the settings can be tested without a browser. */
+class FakeStorage implements KeyValueStore {
+  readonly items = new Map<string, string>();
+  full = false;
+
+  get length(): number {
+    return this.items.size;
+  }
+  key(index: number): string | null {
+    return [...this.items.keys()][index] ?? null;
+  }
+  getItem(key: string): string | null {
+    return this.items.get(key) ?? null;
+  }
+  setItem(key: string, value: string): void {
+    if (this.full) throw new Error('QuotaExceededError');
+    this.items.set(key, value);
+  }
+  removeItem(key: string): void {
+    this.items.delete(key);
+  }
+}
+
+test('the machine is a PCjr until a player says otherwise', () => {
+  assert.equal(loadSettings(new FakeStorage()).sound, 'pcjr');
+  assert.equal(DEFAULT_SETTINGS.sound, 'pcjr');
+});
+
+test('a chosen chip is still chosen next time', () => {
+  const storage = new FakeStorage();
+  saveSettings(storage, { ...DEFAULT_SETTINGS, sound: 'speaker' });
+
+  assert.equal(loadSettings(storage).sound, 'speaker');
+});
+
+test('a setting that makes no sense falls back rather than breaking the engine', () => {
+  // These are values a person can edit, and a sound chip that does not exist
+  // would be an engine with nowhere to send its notes.
+  const storage = new FakeStorage();
+  storage.setItem('web-agi:settings', '{"sound":"gramophone","graphics":"vga"}');
+
+  assert.deepEqual(loadSettings(storage), DEFAULT_SETTINGS);
+
+  storage.setItem('web-agi:settings', 'not json');
+  assert.deepEqual(loadSettings(storage), DEFAULT_SETTINGS);
+});
+
+test('a browser that will not remember settings is not an error', () => {
+  // The opposite rule to saved games, and on purpose: one is a preference, the
+  // other is somebody's evening.
+  const storage = new FakeStorage();
+  storage.full = true;
+
+  assert.doesNotThrow(() => saveSettings(storage, DEFAULT_SETTINGS));
+  assert.deepEqual(loadSettings(null), DEFAULT_SETTINGS);
 });
 
 // --- Scheduling ------------------------------------------------------------

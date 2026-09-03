@@ -25,12 +25,13 @@ import {
   type TextWindow,
 } from '../render/text.ts';
 import { SoundPlayer } from '../audio/player.ts';
+import type { SoundChip } from '../audio/output.ts';
 import { parseSound } from '../resources/sound.ts';
 import { Inventory } from './inventory.ts';
 import { KeyPress, type Interaction, type Key } from './interaction.ts';
 import { KeyBindings, MenuBar } from './menu.ts';
 import { noBlock, type Block } from './motion.ts';
-import { FLAG, GameState, MAX_SOUND_VOLUME, VAR } from './state.ts';
+import { FLAG, GameState, MAX_SOUND_VOLUME, SOUND_GENERATOR_VALUE, VAR } from './state.ts';
 import { ViewTable, type View, type ViewObject } from './viewtable.ts';
 
 /** Raised to abandon the rest of a cycle, through however many nested calls. */
@@ -816,6 +817,19 @@ export class Machine {
     // A sound with nothing in it must not leave a script waiting for a moment
     // that never comes.
     if (sound.durationMs <= 0) this.#releaseSoundFlag(this.sound.stop());
+  }
+
+  /**
+   * Choose the machine's sound hardware.
+   *
+   * One entry point, because two things have to agree: what the player hears,
+   * and what the scripts are told they are being played on. Changing only the
+   * first is the state this engine was in before M9 -- four voices, announced
+   * as a PC speaker.
+   */
+  setSoundChip(chip: SoundChip): void {
+    this.sound.setChip(chip);
+    this.state.setVar(VAR.SOUND_GENERATOR, SOUND_GENERATOR_VALUE[chip]);
   }
 
   /**

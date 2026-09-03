@@ -15,7 +15,8 @@ import { BundledSource } from './resources/source.ts';
 import { formatSummary, summariseGame } from './resources/summary.ts';
 import { Vocabulary } from './resources/words.ts';
 import { CanvasView } from './shell/canvas.ts';
-import { Controls, type Settings } from './shell/controls.ts';
+import { Controls } from './shell/controls.ts';
+import { loadSettings, saveSettings } from './shell/settings.ts';
 import {
   bindDebugKeys,
   describeCurrentLogic,
@@ -76,13 +77,19 @@ try {
   /**
    * What the player has chosen, as opposed to what the game asks for.
    *
-   * Two of the three are not built yet and the controls say so; the settings
-   * live here so that building them is a matter of reading a value.
+   * Read back from the browser before the game starts, so the machine the game
+   * runs on is settled before its first cycle -- the same reason the audio
+   * context is waited for.
    */
-  const settings: Settings = { graphics: 'ega', sound: 'speaker' };
+  const settings = loadSettings(storage);
+  machine.setSoundChip(settings.sound);
 
   const controls = new Controls(shell.tools, {
     settings,
+    onChange: (chosen) => {
+      machine.setSoundChip(chosen.sound);
+      saveSettings(storage, chosen);
+    },
     isSoundOn: () => machine.state.getFlag(FLAG.SOUND_ON),
     // The same flag the game's own F2 and Options menu set, so the two agree
     // rather than each keeping their own idea of whether sound is on.
@@ -127,8 +134,7 @@ try {
     'arrow keys walk ego; type commands and press ENTER',
     'ESC opens the menu, TAB the inventory, and the game\'s own shortcuts work',
     '(Ctrl-B, Alt-Z, F1-F10 and the rest, as its menus advertise)',
-    'sound plays from your first keypress, and the game\'s own sound setting',
-    'turns it off and on',
+    'sound starts off: press F2 or the Sound button to switch it on',
     storage
       ? 'F5 saves the game and F7 restores it, as the game\'s own menus say'
       : 'this browser will not let the game save; F5 and F7 will say so',
@@ -240,16 +246,23 @@ try {
     requestAnimationFrame(frame);
   };
 
-  // Nothing runs until the player has touched the page, because that is when
-  // the browser will let the page make a noise -- and the game starts its theme
-  // on the first cycle. Starting the engine first means the opening plays
-  // silently and the key that finally allows audio is usually the one that
-  // skips the title and stops the music.
-  say('press any key to start');
-  const output = await audioReady();
-  if (output) sound.setOutput(output);
-
   cycle.start(0);
+
+  // The game starts with its sound off, because no browser will let a page make
+  // a noise before it has been touched and a game that says "Sound:on" while
+  // playing nothing is worse than one that says what it is doing. The game's own
+  // start-up script switches sound on during the first cycle, so this waits for
+  // that cycle rather than racing it.
+  cycle.runOnce();
+  machine.state.setFlag(FLAG.SOUND_ON, false);
+  say('sound is off — press F2, or the Sound button, to switch it on');
+
+  // Not waited for: the first key or click builds the audio, and whatever is
+  // playing by then is handed over at the point it has reached.
+  void audioReady().then((output) => {
+    if (output) sound.setOutput(output);
+  });
+
   paint();
   requestAnimationFrame(frame);
 

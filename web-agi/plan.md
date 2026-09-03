@@ -3,7 +3,7 @@
 Companion to [spec.md](spec.md). The spec says *what* to build; this says in what
 order, in which files, and how each step is proven to work.
 
-> **M0-M8 are done and shipped. M9-M13 are specified and not started.** The
+> **M0-M9 are done and shipped. M10-M13 are specified and not started.** The
 > milestones are kept as they were written, for the reasoning behind the
 > sequencing and for the format measurements in the next section. They are not a
 > description of the code as built: several modules ended up named or split
@@ -21,7 +21,7 @@ M5  Ego moves                 complete
 M6  Playable                  complete
 M7  Sound                     complete
 M8  Save and restore          complete
-M9  The sound chip switch     not started
+M9  The sound chip switch     complete
 M10 The display driver seam   not started
 M11 What the scripts see      not started
 M12 CGA                       not started
@@ -425,12 +425,19 @@ Then the decoder, then the player:
 *As built:* the autoplay policy turned out to be the whole of the milestone's
 difficulty, and the plan saw only its first half. Creating the context on a
 gesture is not enough, because the game starts its 58-second theme on cycle 1:
-by the time a player presses anything the theme has been running silently, and
-at the title the key they press is the one that skips it and stops the music. So
-two things. The player hands whatever is playing to a new output at the offset
-it has reached, and the scheduler can start a sound part-way through; and the
-engine does not run its first cycle until the page has been touched, which is
-what makes the opening theme audible at all.
+by the time a player presses anything the theme has been running silently. So
+the player hands whatever is playing to a new output at the offset it has
+reached, and the scheduler can start a sound part-way through.
+
+The second half went through two answers. The first was a gate -- nothing runs
+until the page is touched -- which made the theme audible from its first note
+but held the game up behind a keypress. The second, and the one that shipped, is
+that **the game starts with its sound off**: it runs immediately, the player
+switches sound on when they want it, and that switch is itself the gesture that
+lets audio exist. What they then hear is the theme from where it has got to,
+through the same hand-over. Off rather than merely silent, because the status
+line shows the game's own sound flag and a game that says *Sound:on* while
+playing nothing is worse than one that says what it is doing.
 
 Audio is scheduled on the audio clock as planned, but *the flag* is
 timed off the engine's own elapsed milliseconds, in `SoundPlayer.tick`, called
@@ -613,7 +620,7 @@ faithful reproduction: the original redraws the picture and loses them.
 
 ---
 
-## M9 — The sound chip switch — not started
+## M9 — The sound chip switch — complete
 
 The shell already offers the choice between a PC speaker and a PCjr and admits
 it does nothing. This is the work behind it.
@@ -653,6 +660,19 @@ src/shell/controls.ts   the select stops saying "not built yet"
 src/main.ts             the choice reaches the player, and is remembered
 src/engine/cycle.ts     the reserved variable follows the choice
 ```
+
+*As built:* as listed, plus two moves the plan implies without saying. `SoundChip`
+left the shell for `audio/output.ts`, because a type is best kept where it is
+*used* rather than where it is first offered; and remembering the choice became
+`shell/settings.ts` rather than another module under `storage/`, because a
+setting is about the machine the game is played on while a save is about the
+game. That difference has a rule attached: a save that cannot be written stops
+the player and says so, and a setting that cannot be written is quietly lost,
+because one is a preference and the other is somebody's evening.
+
+`Machine.setSoundChip` is the single entry point, and exists so that the two
+things that have to agree cannot be changed apart: what is played, and what the
+scripts are told they are being played on.
 
 ### Order of work
 
@@ -694,6 +714,22 @@ does not move the end of the sound or the flag the script is waiting on;
 switching back restores the other three; the choice survives a reload; and the
 tests assert the channel count in each mode against the recording output that
 M7's tests already use.
+
+**Done.** 12 tests, and the whole suite at 302. The one that matters is the one
+about *not* changing: a sound switched from four voices to one is checked to
+release its waiting script neither a moment early nor a moment late, which is
+the same rule the volume keeps and the only way a hardware choice could have
+altered the game's pacing without anyone noticing.
+
+The hand-over turned out to be one operation rather than two. M7 already had to
+give a running sound to an audio context that arrived late; a chip change is the
+same move -- re-issue what is playing at the offset it has reached -- so both go
+through one private method, and the timing rule is enforced in one place.
+
+*Still open:* which value the sound-generator variable takes for a PCjr. The
+engine writes 3, from the interpreter's table for a Tandy. Nothing in the
+bundled game reads the variable at all, so nothing here can confirm it and
+nothing here depends on it.
 
 ---
 

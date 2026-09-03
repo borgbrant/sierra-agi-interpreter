@@ -86,7 +86,8 @@ export function describeState(machine: Machine, cycle: Cycle): string[] {
   lines.push(
     `sound ${machine.sound.isPlaying ? `${Math.round(machine.sound.remainingMs)}ms left` : 'idle'}` +
       `, ${state.getFlag(FLAG.SOUND_ON) ? 'on' : 'off'}` +
-      `, volume ${state.getVar(VAR.SOUND_VOLUME)}`,
+      `, volume ${state.getVar(VAR.SOUND_VOLUME)}` +
+      `, ${machine.sound.chip} (v${VAR.SOUND_GENERATOR}=${state.getVar(VAR.SOUND_GENERATOR)})`,
   );
 
   for (const object of machine.viewTable.objects) {

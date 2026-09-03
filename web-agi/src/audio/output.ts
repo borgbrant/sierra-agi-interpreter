@@ -7,12 +7,38 @@
  * the scheduling below is the part that can only be exercised in a browser.
  */
 import {
+  CHANNEL_COUNT,
   frequencyOf,
   gainOf,
   NOISE_CHANNEL,
+  SILENT_ATTENUATION,
   Sound,
   TICKS_PER_SECOND,
 } from '../resources/sound.ts';
+
+/**
+ * Which sound hardware the game is being played on.
+ *
+ * Not a preference about how loud things should be: the two machines play
+ * *different amounts of the music*. A PCjr or a Tandy has three tone voices and
+ * a noise channel and plays a SOUND resource whole. A PC speaker has one voice
+ * and no volume at all -- it plays the first tone channel, at one level,
+ * because a speaker is on or off.
+ */
+export type SoundChip = 'speaker' | 'pcjr';
+
+/**
+ * The voices each chip has.
+ *
+ * The speaker's one voice is the first tone channel, which is where the melody
+ * of the bundled game's music sits: it carries 1864 of the 3838 notes, and is
+ * the longest channel in twenty of the twenty-eight sounds. In the other eight
+ * a piece now ends when that one voice runs out.
+ */
+const CHANNELS_PLAYED: Record<SoundChip, number> = {
+  pcjr: CHANNEL_COUNT,
+  speaker: 1,
+};
 
 export interface SoundOutput {
   /**
@@ -31,6 +57,17 @@ export interface SoundOutput {
    * at exactly the speed of one played loud.
    */
   setVolume(level: number): void;
+
+  /**
+   * Which hardware to sound like from now on.
+   *
+   * Like the volume, this changes what is audible and never when anything
+   * happens: a sound switched from four voices to one still ends at the same
+   * moment, and the script waiting on it is released at the same moment. The
+   * player re-issues whatever is playing at the point it has reached, which is
+   * the same hand-over a late audio context gets.
+   */
+  setChip(chip: SoundChip): void;
 }
 
 /** Does nothing, audibly. Used until the audio context can be created. */
@@ -38,6 +75,7 @@ export const SILENT_OUTPUT: SoundOutput = {
   play: () => {},
   stop: () => {},
   setVolume: () => {},
+  setChip: () => {},
 };
 
 /** How loud the whole game is, before the game's own attenuations. */
@@ -70,6 +108,7 @@ export class WebAudioOutput implements SoundOutput {
   #context: AudioContext;
   #master: GainNode;
   #level = 1;
+  #chip: SoundChip = 'pcjr';
   #noiseBuffer: AudioBuffer | null = null;
   #playing: AudioScheduledSourceNode[] = [];
 
@@ -85,6 +124,10 @@ export class WebAudioOutput implements SoundOutput {
     this.#master.gain.value = MASTER_GAIN * this.#level;
   }
 
+  setChip(chip: SoundChip): void {
+    this.#chip = chip;
+  }
+
   play(sound: Sound, fromMs = 0): void {
     this.stop();
 
@@ -92,7 +135,12 @@ export class WebAudioOutput implements SoundOutput {
     const start = context.currentTime;
     const skip = Math.max(0, fromMs) / 1000;
 
+    const voices = CHANNELS_PLAYED[this.#chip];
+
     sound.channels.forEach((channel, index) => {
+      // A speaker has one voice, and it is the first tone channel. The others
+      // are not played quietly; they are not played.
+      if (index >= voices) return;
       if (channel.notes.length === 0) return;
       if (channel.durationTicks / TICKS_PER_SECOND <= skip) return;
 
@@ -125,7 +173,7 @@ export class WebAudioOutput implements SoundOutput {
           gain.gain.setValueAtTime(0, at);
         } else {
           (source as OscillatorNode).frequency.setValueAtTime(frequency, at);
-          gain.gain.setValueAtTime(gainOf(note.attenuation), at);
+          gain.gain.setValueAtTime(this.#gainOf(note.attenuation), at);
         }
       }
 
@@ -148,6 +196,18 @@ export class WebAudioOutput implements SoundOutput {
       source.disconnect();
     }
     this.#playing = [];
+  }
+
+  /**
+   * How loud one note is on this chip.
+   *
+   * A speaker has no volume control: every note that is not silence plays at
+   * the one level it has. Attenuation 15 stays what it always was -- a rest --
+   * because that is the format's way of writing a gap, not a quiet note.
+   */
+  #gainOf(attenuation: number): number {
+    if (this.#chip === 'pcjr') return gainOf(attenuation);
+    return attenuation >= SILENT_ATTENUATION ? 0 : 1;
   }
 
   /** A square wave, which is what the chip produced. */

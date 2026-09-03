@@ -14,7 +14,7 @@
  * that end it early.
  */
 import type { Sound } from '../resources/sound.ts';
-import { SILENT_OUTPUT, type SoundOutput } from './output.ts';
+import { SILENT_OUTPUT, type SoundChip, type SoundOutput } from './output.ts';
 
 interface Playing {
   sound: Sound;
@@ -27,6 +27,16 @@ export class SoundPlayer {
   #output: SoundOutput;
   #playing: Playing | null = null;
   #level = 1;
+
+  /**
+   * The machine's sound hardware.
+   *
+   * A PCjr by default. The engine has always played four voices while telling
+   * the game it was a PC speaker, and the two had to be made to agree: agreeing
+   * downwards would take away half the notes of a game most people remember
+   * with them, so the speaker is a choice made on purpose.
+   */
+  #chip: SoundChip = 'pcjr';
 
   constructor(output: SoundOutput = SILENT_OUTPUT) {
     this.#output = output;
@@ -52,14 +62,14 @@ export class SoundPlayer {
   setOutput(output: SoundOutput): void {
     this.#output = output;
     output.setVolume(this.#level);
+    output.setChip(this.#chip);
 
     // Whatever is playing has been playing silently, and is handed over where
     // it has got to. The game's theme starts on the first cycle, long before a
     // browser will let a page make a noise, so without this the opening is
     // silent for its whole minute and the first thing ever heard is the sound
     // after it.
-    const playing = this.#playing;
-    if (playing) output.play(playing.sound, playing.sound.durationMs - playing.remainingMs);
+    this.#reissue();
   }
 
   /** How loud, 0 to 1. Timing is deliberately unaffected. */
@@ -75,6 +85,27 @@ export class SoundPlayer {
   /** How loud it is now, for the state dump. */
   get volume(): number {
     return this.#level;
+  }
+
+  /** Which hardware the game is being played on. */
+  get chip(): SoundChip {
+    return this.#chip;
+  }
+
+  /**
+   * Change hardware, including under a sound that is already playing.
+   *
+   * Timing is untouched, exactly as it is for the volume: what is playing keeps
+   * the length it had, so the flag its script is waiting on arrives when it was
+   * always going to. Only the voices change, and they change now rather than at
+   * the next sound -- a switch made during the theme should be audible in the
+   * theme.
+   */
+  setChip(chip: SoundChip): void {
+    if (chip === this.#chip) return;
+    this.#chip = chip;
+    this.#output.setChip(chip);
+    this.#reissue();
   }
 
   /**
@@ -116,6 +147,21 @@ export class SoundPlayer {
 
     this.#playing = null;
     return playing.flag;
+  }
+
+  /**
+   * Hand whatever is playing to the output, at the point it has reached.
+   *
+   * The one operation behind both of the ways sound can change underneath a
+   * running game: an audio context that arrives late, and a chip that changes.
+   * Neither may move the clock, so the offset comes from the time already spent
+   * rather than from anything the output knows.
+   */
+  #reissue(): void {
+    const playing = this.#playing;
+    if (playing) {
+      this.#output.play(playing.sound, playing.sound.durationMs - playing.remainingMs);
+    }
   }
 
   /** Forget what is playing and report whoever was waiting for it. */

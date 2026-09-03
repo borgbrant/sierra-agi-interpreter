@@ -23,7 +23,7 @@ stack        TypeScript + Vite, no UI framework
 game data    bundled with the app at build time
 v1 scope     playable core; no sound, no save/restore   (M0-M6, shipped)
 v2 scope     sound (M7) and save/restore (M8), both shipped
-v3 scope     the sound chip switch (M9), the graphics modes (M10-M13)
+v3 scope     the sound chip switch (M9, shipped), graphics modes (M10-M13)
 code sharing npm workspaces, web-agi imports agi-extract
 ```
 
@@ -541,15 +541,20 @@ looping buffer of random samples played at the rate the notes ask for.
 Two constraints shape the design more than the format does:
 
 - **An `AudioContext` starts suspended until a user gesture**, and the game
-  starts its theme on cycle 1. Those two facts do not fit: whatever a player's
-  first keypress is, the opening has already been playing silently — and at the
-  title that keypress is usually the one that skips it, which changes room and
-  stops the music. So the engine does not run its first cycle until the page has
-  been touched: the shell says *press any key to start*, the gesture is consumed
-  rather than passed to the game, and the context exists before the first cycle
-  does. A sound already running when a context arrives is handed to it at the
-  point it has reached, which covers a context that arrives late anyway; a
-  browser with no WebAudio at all resolves immediately and plays silently.
+  starts its theme on cycle 1. Those two facts do not fit, so the game **starts
+  with its sound switched off** and the player turns it on when they want it —
+  which is itself a gesture, and therefore the moment audio can exist. Nothing
+  is gated on it: the game runs from the moment it loads, the context is built at
+  the first key or click whenever that comes, and a sound already playing by
+  then is handed to it at the point it has reached, so switching sound on during
+  the theme joins the theme rather than restarting it. The game's own start-up
+  script switches sound on during the first cycle, so the shell switches it off
+  after that cycle rather than racing it. A browser with no WebAudio at all
+  simply plays silently.
+
+  Off rather than merely silent, because the status line shows the game's sound
+  flag: a game that says *Sound:on* while playing nothing is worse than one that
+  says what it is doing.
 - **`stop.sound` must release whatever was waiting.** A script that stops its own
   sound and then waits on its flag would otherwise hang. This is the one deadlock
   playback can introduce that a no-op could not.
@@ -628,9 +633,9 @@ game's own pictures and looking at the result.
 
 ## The sound chip (M9)
 
-The engine plays all four channels of every SOUND resource, which is what a
-PCjr or a Tandy does, while telling the game it is a PC speaker. The shell
-offers the choice; this is what choosing has to mean.
+The engine plays all four channels of every SOUND resource, which is what a PCjr
+or a Tandy does. Until M9 it said "PC speaker" while doing so; now the shell
+offers the choice and the two agree either way.
 
 A PC speaker is **one voice, not a quieter four**: it plays tone channel 0, and
 the other two tone channels and the noise channel are not played at all. In the
@@ -647,9 +652,10 @@ changes what is heard and nothing else -- which is what separates it from the
 graphics choice, where the game branches in twenty-seven places. The variable is
 still written to match the choice, because the next game may ask.
 
-Two rules carry over from M7 and are what the milestone is really about. The
+Two rules carry over from M7 and are what the milestone was really about. The
 choice applies to a sound *already playing*, through the same hand-over that
-gives a late audio context a running sound at its offset. And **timing does not
+gives a late audio context a running sound at its offset -- one operation, used
+by both, so the rule below is enforced in one place. And **timing does not
 change**: a sound switched from four voices to one ends at the same moment and
 releases the waiting script at the same moment, exactly as turning the volume
 down does. `SoundPlayer` keeps owning the clock; `SoundOutput` decides only what
@@ -749,25 +755,28 @@ the window size.
 Deliberately thin: a page holding the canvas, a title, an error surface, and a
 row of controls for the things the player chooses rather than the game.
 
-Three of those controls exist, and two of them name work that is not built:
+Three of those controls exist, and one of them names work that is not built:
 
 ```text
 Graphics    CGA / EGA / PCjr / Herc.  chosen; only EGA is drawn (M10-M13)
-Sound chip  PC speaker / PCjr         chosen; all four channels always play (M9)
+Sound chip  PC speaker / PCjr         wired: one voice, or four
 Sound on    on / off                  wired: the game's own sound flag
 ```
 
-The unbuilt two are controls that say so rather than controls that quietly do
-nothing, and the choice each records is typed and kept in one place, so building
-it later means reading a value rather than deciding where the value lives. Both
-are more than a palette or a channel count: the game *branches* on which display
-and which sound hardware it is talking to, so either one means making the
-drawing and the reserved variable agree — see *Graphics* and *Sound (M7)*.
+The unbuilt one is a control that says so rather than one that quietly does
+nothing, and the choice it records is typed and kept where the others are, so
+building it means reading a value rather than deciding where the value lives.
 
-The sound switch needed no deferral: off is a state the engine already has, and
-the button sets the same flag the game's own F2 and Options menu set, so the two
-cannot disagree. Its label follows the flag rather than remembering what was
-last pressed, because the game changes it too.
+The two sound controls are wired. The chip switch changes what is played and
+what the scripts are told they are being played on, through one entry point so
+the two cannot be changed apart. The on/off switch sets the same flag the game's
+own F2 and Options menu set, and its label follows the flag rather than
+remembering what was last pressed, because the game changes it too.
+
+Settings are remembered separately from saved games and under a different rule:
+a save that cannot be written stops the player and says so, while a setting that
+cannot be written is quietly lost. One is a preference; the other is somebody's
+evening.
 
 Errors are reported rather than swallowed. A missing resource, a corrupt VOL
 header or an unimplemented opcode shows what failed and where, because during
@@ -820,8 +829,8 @@ only the final blit needs a canvas.
 
 ## Milestones
 
-Each milestone ends with something observable, not just code. M0-M8 are done;
-M9-M13 are specified and not started. The numbering is the one
+Each milestone ends with something observable, not just code. M0-M9 are done;
+M10-M13 are specified and not started. The numbering is the one
 [plan.md](plan.md) works to.
 
 ```text
@@ -884,7 +893,7 @@ M13 Hercules
 
 ```text
 M0  complete    M4  complete    M8  complete     M12 not started
-M1  complete    M5  complete    M9  not started  M13 not started
+M1  complete    M5  complete    M9  complete     M13 not started
 M2  complete    M6  complete    M10 not started
 M3  complete    M7  complete    M11 not started
 ```

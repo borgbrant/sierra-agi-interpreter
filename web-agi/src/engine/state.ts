@@ -13,6 +13,18 @@
  */
 
 /**
+ * What the sound-generator variable holds, per machine.
+ *
+ * From the interpreter's own table: 1 for a PC speaker, 3 for a Tandy, which is
+ * the PCjr's family. Nothing in the bundled game reads the variable -- it is
+ * tested in none of the forty-six scripts -- so nothing here forces the value
+ * and nothing here can confirm it either. It is written because the next game
+ * may ask, and because an engine that says "speaker" while playing four voices
+ * is the state this one was in before M9.
+ */
+export const SOUND_GENERATOR_VALUE = { speaker: 1, pcjr: 3 } as const;
+
+/**
  * Loudest the game's own volume control goes.
  *
  * Logic 0 raises VAR.SOUND_VOLUME only while it is under 15, which is where

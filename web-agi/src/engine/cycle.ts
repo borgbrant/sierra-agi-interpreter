@@ -20,7 +20,7 @@ import type { Interaction } from './interaction.ts';
 import { Machine, Unwind } from './machine.ts';
 import { checkAllMotions, cycleObjects, updatePositions } from './motion.ts';
 import { enterRoom } from './room.ts';
-import { FLAG, MAX_SOUND_VOLUME, VAR } from './state.ts';
+import { FLAG, MAX_SOUND_VOLUME, SOUND_GENERATOR_VALUE, VAR } from './state.ts';
 
 /** The interpreter's clock: cycle delays are counted in twentieths of a second. */
 export const TICK_MS = 50;
@@ -82,7 +82,9 @@ export class Cycle {
     machine.state.setVar(VAR.CYCLE_DELAY, 2);
     machine.state.setVar(VAR.COMPUTER_TYPE, 0); // IBM PC
     machine.state.setVar(VAR.MONITOR_TYPE, 3); // EGA
-    machine.state.setVar(VAR.SOUND_GENERATOR, 1); // PC speaker
+    // Whatever the player chose, rather than a constant: the variable and the
+    // voices being out of step is exactly what M9 was about.
+    machine.state.setVar(VAR.SOUND_GENERATOR, SOUND_GENERATOR_VALUE[machine.sound.chip]);
     // The game turns this down and up with its volume keys; nothing sets it
     // for the first time, so a game started at zero would play silently.
     machine.state.setVar(VAR.SOUND_VOLUME, MAX_SOUND_VOLUME);
