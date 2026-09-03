@@ -27,6 +27,7 @@ import {
   type TextWindow,
 } from '../render/text.ts';
 import type { Machine } from './machine.ts';
+import { VAR } from './state.ts';
 
 /** A key, as an interaction needs to see it. */
 export interface Key {
@@ -72,6 +73,38 @@ export abstract class Interaction {
    */
   tick(_elapsedMs: number): boolean {
     return false;
+  }
+}
+
+/**
+ * The game standing still until a key is pressed, with nothing of its own on
+ * screen.
+ *
+ * The scripts' own way of waiting, and the one kind of wait no command asks
+ * for. A help or puzzle screen writes itself into the character cells and then
+ * spins on `if (!have.key()) goto self` -- which works in the original because
+ * the interpreter reads the keyboard from inside that loop, and cannot work
+ * here, where a key can only arrive between cycles. So the machine recognises
+ * the spin and parks on this instead; see `Machine.run`.
+ *
+ * It draws nothing: what the player should be looking at is whatever the script
+ * has already put on the screen.
+ */
+export class KeyPress extends Interaction {
+  override draw(): void {}
+
+  override key(machine: Machine, key: Key): boolean {
+    // Keys with no character -- arrows, function keys -- are not what these
+    // loops are waiting for: the script tests the key variable for a non-zero
+    // value, so anything else would send it straight back round the loop.
+    if (key.char === 0) return false;
+
+    machine.state.setVar(VAR.KEY_PRESSED, key.char);
+    // Taken out of the buffer as well, or the next cycle hands the same key to
+    // the game a second time and a keypress that dismissed a help screen also
+    // fires whatever else that key is bound to.
+    machine.keyboard.takeKey();
+    return true;
   }
 }
 

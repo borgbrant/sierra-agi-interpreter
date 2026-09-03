@@ -7,9 +7,11 @@ import { Cycle, MAX_CATCH_UP, TICK_MS } from '../src/engine/cycle.ts';
 import { EngineError, Machine, Unwind } from '../src/engine/machine.ts';
 import { DEFAULT_HORIZON, enterRoom } from '../src/engine/room.ts';
 import { FLAG, GameState, LAST_RESERVED_FLAG, LAST_RESERVED_VAR, VAR } from '../src/engine/state.ts';
-import { MessageWindow } from '../src/engine/interaction.ts';
+import { KeyPress, MessageWindow } from '../src/engine/interaction.ts';
+import { TextLayer } from '../src/render/text.ts';
 import { DIRECTION, MOTION } from '../src/engine/viewtable.ts';
 import { WHITE } from '../src/render/screens.ts';
+import { keyNamed } from '../src/input/keyboard.ts';
 import { ResourceManager } from '../src/resources/manager.ts';
 import { parseObjectFile } from '../src/resources/objects.ts';
 import { DiskSource } from './helpers/disk-source.ts';
@@ -24,6 +26,77 @@ function machine(): Machine {
   m.setHandlers(buildHandlers());
   return m;
 }
+
+// --- Runaway scripts --------------------------------------------------------
+
+test("the game's own help screen waits for a key instead of spinning", () => {
+  // Logic 55 is the help screen, and it ends the way the original's screens do:
+  // `if (!have.key()) goto self`, satisfied in the original by reading the
+  // keyboard from inside the loop. Here the cycle has to park instead.
+  const m = machine();
+  const script = m.run(55);
+
+  const step = script.next();
+
+  assert.equal(step.done, false, 'the script has not finished');
+  assert.ok(step.value instanceof KeyPress, `parked on ${step.value?.constructor.name}`);
+  assert.equal(m.textLayer.rowIsEmpty(1), false, 'and it has written its screen first');
+});
+
+test('a key ends the wait and the script carries on to its next page', () => {
+  const m = machine();
+  const script = m.run(55);
+  script.next();
+
+  // The key goes in where a keypress would put it, through the interaction.
+  const parked = m.pending ?? null;
+  assert.equal(parked, null, 'the machine parks the cycle, not itself');
+
+  const first = m.textLayer.chars.slice();
+  const wait = new KeyPress();
+  assert.equal(wait.key(m, keyNamed('a')), true);
+  script.next();
+
+  assert.notDeepEqual(m.textLayer.chars, first, 'the next page is on screen');
+});
+
+test('a spin on anything else is reported rather than left to hang', () => {
+  // A jump straight back to itself, with no command in between and nothing to
+  // wait for. Before the limit this locked the tab up in silence.
+  const bytecode = Uint8Array.of(0xfe, 0xfd, 0xff); // goto -3, to itself
+  const payload = Uint8Array.of(bytecode.length, 0, ...bytecode, 0, 0, 0);
+  const resources = {
+    loadSync: () => payload,
+    isPresent: () => true,
+  } as unknown as ResourceManager;
+
+  const m = new Machine({ resources, objects });
+  m.setHandlers(buildHandlers());
+
+  assert.throws(() => [...m.run(1)], (error: Error) => {
+    assert.ok(error instanceof EngineError, error.name);
+    assert.match(error.message, /looping/);
+    return true;
+  });
+});
+
+test('a text screen is cleared as it is switched to', () => {
+  // The original is switching video modes, so nothing of the last screen
+  // survives. Keeping the cells shows the help's second page through its first.
+  const m = machine();
+  // A row the help screen leaves alone, so what is tested is the clearing.
+  m.textLayer.write('left over', 0, 20, 15, 0);
+  assert.equal(m.textLayer.rowIsEmpty(20), false);
+
+  // Far enough into the help screen to have switched modes, not so far that it
+  // parks on its wait.
+  const script = m.run(55);
+  script.next();
+
+  assert.equal(m.textLayer.rowIsEmpty(1), false, 'the help wrote its own rows');
+  const row = m.textLayer.chars.slice(TextLayer.index(0, 20), TextLayer.index(0, 21));
+  assert.equal(String.fromCharCode(...row).replace(/\0/g, '').trim(), '', 'and nothing of ours');
+});
 
 // --- State -----------------------------------------------------------------
 

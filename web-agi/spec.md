@@ -312,6 +312,18 @@ Control flow within a script is a program counter over the bytecode. Scripts cal
 other scripts; a call runs to completion and returns, so the engine keeps a call
 stack and guards against runaway recursion.
 
+Scripts also wait by spinning. A help or puzzle screen writes itself into the
+character cells and then loops on `if (!have.key()) goto self`, which the
+original satisfies by reading the keyboard from inside the loop -- something an
+engine driven by browser events cannot do, and which hangs the tab rather than
+merely misbehaving. So the machine counts backward jumps taken with no command
+in between: past what any real loop needs, a script going round on tests alone
+is waiting for something no test inside the loop can change. If it asked whether
+a key is waiting, the cycle parks until one is; if it asked anything else,
+nothing mid-cycle can satisfy it and the loop is reported as a defect. A cycle
+also has an instruction budget, so a runaway that is neither becomes an error
+with a script position rather than a frozen page.
+
 Three commands end a cycle rather than returning normally, and the interpreter
 must unwind out of every nested call when they run:
 

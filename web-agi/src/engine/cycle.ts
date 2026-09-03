@@ -172,6 +172,7 @@ export class Cycle {
     const { state } = machine;
     const ego = machine.viewTable.ego;
 
+    machine.resetInstructionBudget();
     this.#advanceClock();
 
     // The keyboard buffer holds one key for one cycle, so a keypress is seen

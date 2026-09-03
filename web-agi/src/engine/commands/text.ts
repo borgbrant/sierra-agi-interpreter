@@ -119,11 +119,17 @@ export const TEXT: Record<string, Handler> = {
   // The full-screen text mode is only used by the original for its error and
   // menu screens; the engine has no separate mode, so this clears the picture
   // area to the text background instead of switching buffers.
+  // Switching to the text screen clears it. The original is switching video
+  // modes, so there is nothing of the last screen left to see; keeping the
+  // cells means the game's own help pages print one over another, and the
+  // second page shows lines from the first between its own.
   'text.screen': (m) => {
     m.textMode = true;
+    m.textLayer.clear();
   },
   graphics: (m) => {
     m.textMode = false;
+    m.textLayer.clear();
   },
 
   // --- asking the player -------------------------------------------------

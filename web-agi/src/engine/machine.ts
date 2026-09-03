@@ -25,7 +25,7 @@ import {
 import { SoundPlayer } from '../audio/player.ts';
 import { parseSound } from '../resources/sound.ts';
 import { Inventory } from './inventory.ts';
-import type { Interaction, Key } from './interaction.ts';
+import { KeyPress, type Interaction, type Key } from './interaction.ts';
 import { KeyBindings, MenuBar } from './menu.ts';
 import { noBlock, type Block } from './motion.ts';
 import { FLAG, GameState, MAX_SOUND_VOLUME, VAR } from './state.ts';
@@ -43,6 +43,24 @@ export class Unwind extends Error {
     this.room = room;
   }
 }
+
+/**
+ * Most instructions one cycle may run before the engine calls it a runaway.
+ *
+ * A cycle is a few thousand instructions; a script that passes this is looping
+ * on a condition the engine never makes true, which without a limit is a frozen
+ * tab rather than a bug report. Generous enough that no legitimate cycle can
+ * reach it, and cheap enough to check on every instruction.
+ */
+export const INSTRUCTION_BUDGET = 500_000;
+
+/**
+ * Backward jumps a script may take with no command between them.
+ *
+ * Comfortably more than any real loop needs -- a loop that does nothing at all
+ * for this many iterations is not counting, it is waiting.
+ */
+export const SPIN_LIMIT = 64;
 
 /** Raised when a script does something the engine cannot yet do. */
 export class EngineError extends Error {
@@ -220,6 +238,15 @@ export class Machine {
    */
   currentLogic: CompiledLogic | null = null;
 
+  /** Instructions run since the cycle began; see {@link INSTRUCTION_BUDGET}. */
+  #executed = 0;
+
+  /** Backward jumps taken with no command in between; see {@link Machine.run}. */
+  #spins = 0;
+
+  /** Whether the condition just evaluated asked whether a key is waiting. */
+  #sawHaveKey = false;
+
   #logic = new Map<number, CompiledLogic>();
   #handlers: Handler[] = [];
   #onStub: ((name: string) => void) | undefined;
@@ -240,6 +267,45 @@ export class Machine {
   /** Install the command table. */
   setHandlers(handlers: Handler[]): void {
     this.#handlers = handlers;
+  }
+
+  /**
+   * Start counting instructions again, at the top of a cycle.
+   *
+   * The budget covers a whole cycle rather than a single script: a runaway is
+   * usually a script calling another one round and round, and each call on its
+   * own is short.
+   */
+  resetInstructionBudget(): void {
+    this.#executed = 0;
+    this.#spins = 0;
+  }
+
+  /**
+   * A backward jump with no command run since the last one.
+   *
+   * A few of those are ordinary -- a loop counting through objects tests and
+   * jumps -- so this only acts once the count is past anything a real loop
+   * would need. Past that, the script is going round on tests alone, and tests
+   * read state that nothing inside the loop can change.
+   *
+   * What it is waiting for is nearly always a key: the game's help, puzzle and
+   * status screens all end in `if (!have.key()) goto self`, which the original
+   * satisfies by reading the keyboard from inside the loop. Here the cycle
+   * parks on a {@link KeyPress} instead, so the browser gets to deliver one.
+   *
+   * A spin waiting for anything else cannot be resolved by waiting -- nothing
+   * else changes mid-cycle -- so it is reported rather than left to hang.
+   */
+  *#spun(id: number, at: number): Generator<Interaction, void, void> {
+    if (++this.#spins <= SPIN_LIMIT) return;
+
+    if (!this.#sawHaveKey) {
+      throw new EngineError('a script is looping on tests that nothing can change', id, at);
+    }
+
+    this.#spins = 0;
+    yield new KeyPress();
   }
 
   /** Record that an unimplemented command was reached, and carry on. */
@@ -310,14 +376,31 @@ export class Machine {
       while (pc < compiled.instructions.length) {
         const instruction = compiled.instructions[pc]!;
 
+        // Checked here rather than beside the commands, because a script can
+        // spin on nothing but tests and jumps -- which is exactly what the
+        // loops below are, and what used to hang the tab in silence.
+        if (++this.#executed > INSTRUCTION_BUDGET) {
+          throw new EngineError(
+            `a script has run ${INSTRUCTION_BUDGET} instructions without finishing the cycle`,
+            id,
+            instruction.at,
+          );
+        }
+
         if (instruction.kind === 'if') {
-          pc = this.#test(instruction.conditions)
-            ? pc + 1
-            : this.#jump(compiled, instruction.target, instruction.at);
+          this.#sawHaveKey = false;
+          const passed = this.#test(instruction.conditions);
+          if (passed) {
+            pc++;
+            continue;
+          }
+          if (instruction.target <= instruction.at) yield* this.#spun(id, instruction.at);
+          pc = this.#jump(compiled, instruction.target, instruction.at);
           continue;
         }
 
         if (instruction.kind === 'else') {
+          if (instruction.target <= instruction.at) yield* this.#spun(id, instruction.at);
           pc = this.#jump(compiled, instruction.target, instruction.at);
           continue;
         }
@@ -349,6 +432,9 @@ export class Machine {
         // `set.scan.start` needs to name the instruction after itself.
         this.#nextAddress =
           compiled.instructions[pc + 1]?.at ?? compiled.resource.bytecode.length;
+
+        // A command ran, so whatever the script is doing it is not spinning.
+        this.#spins = 0;
 
         const waiting = handler(this, instruction.args);
         if (waiting) yield waiting;
@@ -449,6 +535,7 @@ export class Machine {
       case 'compare.strings':
         return state.getString(a[0]!) === state.getString(a[1]!);
       case 'have.key':
+        this.#sawHaveKey = true;
         return state.getVar(VAR.KEY_PRESSED) !== 0;
       case 'controller':
         return this.controllers.has(a[0]!);
