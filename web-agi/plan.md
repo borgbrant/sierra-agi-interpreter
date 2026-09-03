@@ -3,7 +3,7 @@
 Companion to [spec.md](spec.md). The spec says *what* to build; this says in what
 order, in which files, and how each step is proven to work.
 
-> **M0-M8 are done and shipped: this plan is finished.** The
+> **M0-M8 are done and shipped. M9-M13 are specified and not started.** The
 > milestones are kept as they were written, for the reasoning behind the
 > sequencing and for the format measurements in the next section. They are not a
 > description of the code as built: several modules ended up named or split
@@ -21,6 +21,11 @@ M5  Ego moves                 complete
 M6  Playable                  complete
 M7  Sound                     complete
 M8  Save and restore          complete
+M9  The sound chip switch     not started
+M10 The display driver seam   not started
+M11 What the scripts see      not started
+M12 CGA                       not started
+M13 Hercules                  not started
 ```
 
 ## Grounding: what was verified before planning
@@ -605,6 +610,275 @@ snapshot stores of the background. The engine therefore remembers the cels a
 script painted into the picture and replays them on restore, which is what keeps
 the customers in Lefty's bar. That is a deliberate addition rather than a
 faithful reproduction: the original redraws the picture and loses them.
+
+---
+
+## M9 — The sound chip switch — not started
+
+The shell already offers the choice between a PC speaker and a PCjr and admits
+it does nothing. This is the work behind it.
+
+### Grounding: what the choice actually costs
+
+Measured from the bundled game before planning, as everything else here was:
+
+```text
+tests of variable 22        0   -- the game never asks what it is playing on
+sounds                     28   -- every one of them has notes on tone channel 0
+notes per channel    1864 / 1230 / 712 / 32   (tone 1, 2, 3, then noise)
+channel 0 is longest    20 of 28 sounds
+attenuations on channel 0   0-13 and 15
+```
+
+Three things follow, and they are the whole shape of the milestone:
+
+- **Nothing in the game branches on it.** Var 22 is read in no condition in any
+  of the 46 scripts, so this changes what is *heard* and nothing else. That is
+  what makes it a milestone of its own rather than half of the graphics one,
+  where the game branches in twenty-seven places.
+- **A beeper is one voice, not a quieter four.** The PC speaker plays tone
+  channel 0; the other two tone channels and the noise channel are not played at
+  all. That is roughly half the notes in the game, and in the eight sounds where
+  channel 0 is not the longest the piece now ends when that one voice runs out.
+- **A beeper has no volume.** Attenuation shapes channel 0 in fourteen of its
+  sixteen steps, and a speaker can only be on or off. Attenuation 15 stays what
+  it always was -- a rest -- and everything else plays at one level.
+
+### Files
+
+```text
+src/audio/output.ts     one-voice scheduling; switching while a sound plays
+src/audio/player.ts     the chip as state, so a later output inherits it
+src/shell/controls.ts   the select stops saying "not built yet"
+src/main.ts             the choice reaches the player, and is remembered
+src/engine/cycle.ts     the reserved variable follows the choice
+```
+
+### Order of work
+
+The risky part first, as everywhere: not the one-voice scheduling, which is a
+filter over a loop that already exists, but **switching chips while a sound is
+playing**. M7 left the machinery for it -- `play(sound, fromMs)` exists because
+a context can arrive mid-theme -- and the rule it has to keep is the one volume
+already keeps: *timing does not change*. A sound switched from four voices to
+one must still end at the same moment, and the script waiting on it must be
+released at the same moment, or a menu setting quietly changes the game's pacing.
+
+1. **The chip as state on the player.** `SoundPlayer` owns the clock and knows
+   what is playing; the chip belongs beside the volume, and a new output
+   inherits it the same way.
+2. **One voice in the output.** In speaker mode the scheduler builds one
+   oscillator from channel 0 and ignores the rest, and gain becomes on-or-off
+   rather than a curve.
+3. **The reserved variable.** `VAR.SOUND_GENERATOR` follows the choice, even
+   though this game never reads it, because the next one might -- and because an
+   engine that says "PC speaker" while playing four voices is the state we are
+   in today. *Open:* which value means PCjr. The engine writes 1 for the
+   speaker; the table gives 3 for Tandy, and that needs confirming against the
+   interpreter rather than assumed, since nothing in this game forces an answer.
+4. **Remembering the choice.** In the browser's storage beside the saves, so it
+   survives a reload. A setting a player has to make again every time is a
+   setting they will stop using.
+
+### The default, which is a decision rather than a detail
+
+Today the engine plays four voices while telling the game it is a PC speaker.
+The two have to be made to agree, and agreeing *downwards* would take away
+half the notes of a game most people remember with them. So the default is the
+PCjr, and the speaker is the choice a player makes on purpose -- recorded here
+because it is the point where fidelity and what people want part company, and a
+later reader deserves to know it was chosen rather than overlooked.
+
+**Done when:** switching to the speaker mid-theme leaves one voice playing and
+does not move the end of the sound or the flag the script is waiting on;
+switching back restores the other three; the choice survives a reload; and the
+tests assert the channel count in each mode against the recording output that
+M7's tests already use.
+
+---
+
+## M10 — The display driver seam — not started
+
+The graphics modes were one milestone until they were written down, and then
+they were plainly four. This one is the only one of them a test can prove, and
+the only one that changes nothing on screen.
+
+### Grounding: what the original shipped
+
+The four modes are not a guess about which adapters mattered in 1987. The game's
+own directory names them, one driver per adapter:
+
+```text
+EGA_GRAF.OVL   1024 bytes      HGC_GRAF.OVL   1536 bytes
+CGA_GRAF.OVL   1024 bytes      HGC_FONT       3072 bytes
+JR_GRAF.OVL     512 bytes      HGC_OBJS.OVL   1024 bytes
+                               IBM_OBJS.OVL    512 bytes
+```
+
+Two things in that list are already an answer. Hercules brings **its own font**,
+so text is not merely drawn in one colour; and the `*_OBJS` pair says the object
+drawing differs too, not only the palette.
+
+### The seam
+
+Each mode is its own **display driver**: a layer the engine draws *through*
+rather than one it knows about, which is how the original was built and swapped
+at startup. What crosses downwards is not pixels but what the engine has -- the
+two 160x168 screens, the grid of character cells with their colours, and any
+window over them. What a driver decides for itself:
+
+```text
+its canvas size and pixel aspect      how a character cell becomes pixels
+its palette, and how 16 map to fewer  its font
+```
+
+That last pair is why the seam has to carry more than colours. **Hercules is
+720x348**, not 320x200, and its font is not the engine's: `HGC_FONT` is 3072
+bytes, which is 256 glyphs of 12 bytes -- an 8x12 cell against the 8x8 the
+engine draws now. A layer that could only choose a palette would have nowhere to
+put either fact.
+
+The work is in finding the seam, because today there is none. Everything that
+draws -- the picture, the sprites, the text layer, the windows, the interactions
+-- writes into a single 320x200 buffer of palette indices in
+`render/display.ts`, by way of `engine/present.ts`. That buffer is not "the
+display"; it is *the EGA driver's* display.
+
+### Files
+
+```text
+src/render/drivers/driver.ts     what a display driver is, and what it is given
+src/render/drivers/ega.ts        today's rendering, behind the seam
+src/engine/present.ts            hands the driver screens and cells, not pixels
+src/shell/canvas.ts              the canvas sized by the driver, not by 320x200
+```
+
+### Order of work
+
+1. **The interface, written against the hardest mode.** Hercules is the one that
+   moves size, font and cell shape at once, so the interface is designed to
+   carry those even though nothing implements them yet -- an interface shaped
+   around EGA would have to be rewritten at M13.
+2. **EGA behind it**, doing exactly what the engine does today.
+3. **The canvas from the driver**: backing size and pixel aspect asked for
+   rather than assumed.
+
+Nothing above the seam may ask which driver is running. The one fact that
+travels back up is the reserved monitor variable, and that is the scripts'
+business rather than the renderer's -- which is M11.
+
+**Done when:** every pixel the game draws goes through one EGA driver, the
+canvas takes its size from it, and the golden tests are untouched. That last
+clause is the milestone: this is a change that is *supposed* to be invisible,
+and the tests are what say it was.
+
+---
+
+## M11 — What the scripts are drawn on — not started
+
+The half of the graphics work that has nothing to do with pixels, and the half
+that is testable. The game asks what it is being displayed on and lays itself
+out accordingly, and none of that needs a new palette to build or to see.
+
+### Grounding: what the scripts actually ask
+
+```text
+tests of the monitor-type variable   27, of which 26 are "is this mono?"
+what those branches do               move text between rows 21/22 and 23/24,
+                                     call configure.screen(1, 23, 0), and
+                                     twice show view 151 instead of another
+tests of the computer-type variable  11, all in the help screen (logic 55)
+```
+
+So the scripts distinguish **mono from everything else**, and nothing more: CGA,
+PCjr and EGA all take the same path. The computer type is a separate question,
+and the game reads it only to choose which help page to show -- keyboard,
+joystick or mouse.
+
+`configure.screen` is the command the mono branch calls to move the picture area
+and the input row, and this engine implements it as a no-op. Until it is real,
+Hercules cannot be anything but wrong, and the rows the engine draws text on are
+constants rather than something the game may move.
+
+### Files
+
+```text
+src/engine/commands/text.ts   configure.screen stops being a no-op
+src/render/text.ts            the rows become state rather than constants
+src/engine/cycle.ts           the monitor and computer variables follow the choice
+src/render/drivers/pcjr.ts    EGA's pixels, a different answer
+src/shell/controls.ts         the select stops saying "not built yet" for PCjr
+src/storage/settings.ts       the choice survives a reload
+```
+
+### Order of work
+
+1. **`configure.screen`, for real**, and the text rows with it. This is where a
+   defect hides: the status line, the prompt row and the picture's top row are
+   constants in three modules, and a game that can move them will find every
+   place that assumed it could not.
+2. **The variables follow the choice**, so the scripts are told what the shell
+   was told.
+3. **PCjr, which is EGA with a different answer.** The cheapest mode there is --
+   the PCjr's 160x200 mode uses the palette AGI already targets, so its pixels
+   are EGA's. It is worth building first anyway, because it proves *switching
+   drivers* with no rendering work to hide a mistake behind.
+4. **Remembering the choice**, with M9's.
+
+**Done when:** choosing PCjr changes the help page the game offers; telling the
+engine it is mono moves the input row and shows the game's mono view, while
+still drawn in EGA colours; and the choice survives a reload.
+
+---
+
+## M12 — CGA — not started
+
+Four colours, and the sixteen the game draws in reached by dithering pairs of
+pixels. Pure rendering: the scripts cannot tell CGA from EGA, as M11 measured.
+
+The mapping cannot be read out of the original driver -- `CGA_GRAF.OVL` is not
+bundled, because the repository ships only the game's resource files. It is
+derived instead, and checked the way the opcode table was checked: by rendering
+the game's own pictures and looking at whether the result is coherent, rather
+than by comparing against a table nobody here can consult.
+
+```text
+src/render/drivers/cga.ts   four colours, and the dither that reaches 16
+```
+
+**Done when:** every picture in the game renders in CGA through its own driver,
+the dither holds together at the scale the canvas presents it, and EGA is
+untouched.
+
+---
+
+## M13 — Hercules — not started
+
+The mode that moves everything at once, and the reason the seam of M10 carries
+size and font: 720x348, two colours, an 8x12 font of its own, and its own object
+drawing in `HGC_OBJS.OVL`. Its layout arrived in M11, which is what makes this
+milestone only about pixels.
+
+```text
+src/render/drivers/hercules.ts   two colours, 720x348, its own cell
+src/render/font.ts               the Hercules font beside the IBM one
+```
+
+The font is the part with a fact attached: 3072 bytes, 256 glyphs of 12 bytes.
+The palette has none -- two colours and a dither, derived and judged by eye.
+
+**Done when:** Hercules draws the game at its own size on a canvas that follows
+it, in its own font, and switching to it and back repaints without reloading the
+room.
+
+### The risk these four carry
+
+Not correctness that a test can catch, but *plausibility*. Nobody here can
+compare the result against a Hercules card, and a CGA palette that is merely
+wrong-looking passes every test a test can be. Two mitigations, and they are the
+ones the project has used since M2: render the game's own pictures in each mode
+and look at them, and keep the EGA golden tests green so that a mode nobody can
+check cannot quietly disturb the one mode that is known to be right.
 
 ---
 

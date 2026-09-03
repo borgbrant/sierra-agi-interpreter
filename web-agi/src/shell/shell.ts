@@ -19,7 +19,12 @@ const STYLE = `
   .shell__stage { display: flex; align-items: center; justify-content: center; }
   .shell__status { min-height: 1.5em; color: #6f8fbf; }
   .shell__log { width: min(640px, 100%); margin: 0; white-space: pre-wrap; word-break: break-word; color: #9a9aad; }
-  .shell__tools { display: flex; gap: 8px; }
+  .shell__tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .shell__choice { font-size: 12px; color: #6f6f80; display: inline-flex; align-items: center; gap: 4px; }
+  .shell__tools select {
+    font: inherit; font-size: 12px; color: #9a9aad; background: #1b1b22;
+    border: 1px solid #33333f; border-radius: 4px; padding: 3px 6px;
+  }
   .shell__tools button {
     font: inherit; font-size: 12px; color: #9a9aad; background: #1b1b22;
     border: 1px solid #33333f; border-radius: 4px; padding: 4px 10px; cursor: pointer;

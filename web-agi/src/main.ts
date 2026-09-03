@@ -3,7 +3,7 @@ import { SoundPlayer } from './audio/player.ts';
 import { buildHandlers } from './engine/commands/index.ts';
 import { Cycle } from './engine/cycle.ts';
 import { Machine } from './engine/machine.ts';
-import { VAR } from './engine/state.ts';
+import { FLAG, VAR } from './engine/state.ts';
 import { bindKeyboard } from './input/keyboard.ts';
 import { present } from './engine/present.ts';
 import { Renderer } from './render/renderer.ts';
@@ -15,6 +15,7 @@ import { BundledSource } from './resources/source.ts';
 import { formatSummary, summariseGame } from './resources/summary.ts';
 import { Vocabulary } from './resources/words.ts';
 import { CanvasView } from './shell/canvas.ts';
+import { Controls, type Settings } from './shell/controls.ts';
 import {
   bindDebugKeys,
   describeCurrentLogic,
@@ -60,12 +61,45 @@ try {
   const canvas = new CanvasView(shell.stage);
   const renderer = new Renderer();
 
+  /**
+   * Say something to the player, and let them read it.
+   *
+   * The status line otherwise reports where the game is twice a second, which
+   * would wipe a message before anyone could see it.
+   */
+  let statusHeldUntil = 0;
+  const say = (text: string) => {
+    shell.setStatus(text);
+    statusHeldUntil = Date.now() + 4000;
+  };
+
+  /**
+   * What the player has chosen, as opposed to what the game asks for.
+   *
+   * Two of the three are not built yet and the controls say so; the settings
+   * live here so that building them is a matter of reading a value.
+   */
+  const settings: Settings = { graphics: 'ega', sound: 'speaker' };
+
+  const controls = new Controls(shell.tools, {
+    settings,
+    isSoundOn: () => machine.state.getFlag(FLAG.SOUND_ON),
+    // The same flag the game's own F2 and Options menu set, so the two agree
+    // rather than each keeping their own idea of whether sound is on.
+    toggleSound: () => {
+      machine.state.setFlag(FLAG.SOUND_ON, !machine.state.getFlag(FLAG.SOUND_ON));
+      machine.tickSound(0);
+    },
+    say,
+  });
+
   const paint = () => {
     present(machine, renderer);
     canvas.present(renderer.display);
+    controls.refresh();
   };
 
-  bindDebugKeys({ renderer, onChange: paint, onStatus: (text) => shell.setStatus(text) });
+  bindDebugKeys({ renderer, onChange: paint, onStatus: say });
   bindKeyboard((key) => {
     // The state dump is bound here rather than with the view toggle because it
     // has to see the cycle as well as the machine.
@@ -148,7 +182,7 @@ try {
   addTool('Export saves', () => {
     const saves = machine.saves;
     if (!saves || saves.list().length === 0) {
-      shell.setStatus('there are no saved games to export');
+      say('there are no saved games to export');
       return;
     }
 
@@ -159,7 +193,7 @@ try {
     link.download = 'web-agi-saves.json';
     link.click();
     URL.revokeObjectURL(url);
-    shell.setStatus(`exported ${saves.list().length} saved game(s)`);
+    say(`exported ${saves.list().length} saved game(s)`);
   });
 
   addTool('Import saves', () => {
@@ -172,7 +206,7 @@ try {
 
       try {
         const count = importSaves(machine.saves, await file.text());
-        shell.setStatus(`imported ${count} saved game(s); press F7 to restore one`);
+        say(`imported ${count} saved game(s); press F7 to restore one`);
       } catch (cause) {
         shell.showError('Those saves could not be imported', cause);
       }
@@ -211,7 +245,7 @@ try {
   // on the first cycle. Starting the engine first means the opening plays
   // silently and the key that finally allows audio is usually the one that
   // skips the title and stops the music.
-  shell.setStatus('press any key to start');
+  say('press any key to start');
   const output = await audioReady();
   if (output) sound.setOutput(output);
 
@@ -225,6 +259,9 @@ try {
       window.clearInterval(status);
       return;
     }
+
+    // Whatever was said last stays up long enough to be read.
+    if (Date.now() < statusHeldUntil) return;
 
     const pending = [...machine.stubs].sort((a, b) => b[1] - a[1]);
     const ego = machine.viewTable.ego;

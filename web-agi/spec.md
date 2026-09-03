@@ -23,6 +23,7 @@ stack        TypeScript + Vite, no UI framework
 game data    bundled with the app at build time
 v1 scope     playable core; no sound, no save/restore   (M0-M6, shipped)
 v2 scope     sound (M7) and save/restore (M8), both shipped
+v3 scope     the sound chip switch (M9), the graphics modes (M10-M13)
 code sharing npm workspaces, web-agi imports agi-extract
 ```
 
@@ -567,6 +568,98 @@ the teardown, because scheduled audio otherwise outlives the room that started
 it — and each of those paths sets the waiting script's flag, for the same reason
 `stop.sound` does.
 
+## The graphics modes (M10-M13)
+
+The original shipped four display drivers and the game still carries them:
+`EGA_GRAF.OVL`, `CGA_GRAF.OVL`, `JR_GRAF.OVL` and `HGC_GRAF.OVL`, with a
+`HGC_FONT` and a pair of `*_OBJS` overlays beside them. The engine draws the
+first of the four; the shell offers all four; this is what the other three mean.
+
+A mode is two things at once, and that is the whole difficulty -- and the reason
+the work is four milestones rather than one. It is an adapter's palette to draw
+with (M10 makes room for it, M12 and M13 build two), and it is an answer the
+scripts get (M11). The two are worth separating because they are
+checked in entirely different ways: a seam and an answer can be tested, while a
+palette can only be looked at.
+
+```text
+EGA        16 colours, 160x168 doubled to 320 -- what the engine draws today
+PCjr       the same 16 colours: the PCjr's 160x200 mode is the palette AGI
+           targets, so the pixels do not change and only the answer does
+CGA        4 colours, with the 16 reached by dithering pairs of pixels
+Hercules   two colours, its own font, its own object drawing -- and a layout
+           the game moves itself
+```
+
+The scripts ask about the display in twenty-seven places, and twenty-six of them
+ask one question: *is this mono?* CGA, PCjr and EGA all take the same path, so
+those two modes are pure rendering. Hercules is not: on a mono screen the game
+moves its text between rows 21/22 and 23/24, calls `configure.screen` — a
+command this engine currently ignores — and twice shows a different view. A
+Hercules mode that draws in two colours without answering the scripts would lay
+itself out wrongly; one that answers without drawing would be an EGA game with
+its text in the wrong place.
+
+The computer type is a separate variable from the monitor, read in eleven places
+and all of them in the help screen, which offers keyboard, joystick or mouse
+instructions depending on the machine. PCjr is where the two settings meet: it
+is also where the four-voice sound of M9 comes from.
+
+Each mode is a **display driver**, a layer outside the engine that the engine
+draws through — one per adapter, as the original had one overlay per adapter.
+What crosses down to a driver is what the engine has: the two 160x168 screens,
+the grid of character cells with their colours, and any window over them. What a
+driver decides is its canvas size and pixel aspect, its palette and how sixteen
+colours reach fewer, its font, and how a character cell becomes pixels.
+
+That is not an aesthetic split. **Hercules is 720x348**, not 320x200, and its
+font is not the engine's: the game's own `HGC_FONT` is 3072 bytes — 256 glyphs
+of 12 bytes, an 8x12 cell against the 8x8 drawn today. A layer that could only
+choose colours would have nowhere to put either fact, so the canvas takes its
+size and proportions from the driver rather than from the 320x200 the engine
+happens to compose in now. Nothing above the seam asks which driver is running;
+the one fact that travels the other way is the reserved monitor variable, and
+that belongs to the scripts rather than to the renderer.
+
+Neither the CGA palette nor the Hercules dither can be read out of the original
+driver, because the bundled game deliberately ships only its resource files. They
+are derived instead, and checked the way the opcode table was: by rendering the
+game's own pictures and looking at the result.
+
+## The sound chip (M9)
+
+The engine plays all four channels of every SOUND resource, which is what a
+PCjr or a Tandy does, while telling the game it is a PC speaker. The shell
+offers the choice; this is what choosing has to mean.
+
+A PC speaker is **one voice, not a quieter four**: it plays tone channel 0, and
+the other two tone channels and the noise channel are not played at all. In the
+bundled game that is about half of the notes -- 1864 on channel 0 against 1974
+on the rest -- and in the eight sounds of twenty-eight where channel 0 is not
+the longest channel, the piece now ends when that one voice runs out. It also
+has **no volume**: attenuation shapes channel 0 through fourteen of its sixteen
+steps and a speaker can only be on or off, so everything below silence plays at
+one level. Attenuation 15 stays a rest.
+
+Nothing in the game branches on the choice. Variable 22, which names the sound
+hardware, is not read in any condition in any of the forty-six scripts, so this
+changes what is heard and nothing else -- which is what separates it from the
+graphics choice, where the game branches in twenty-seven places. The variable is
+still written to match the choice, because the next game may ask.
+
+Two rules carry over from M7 and are what the milestone is really about. The
+choice applies to a sound *already playing*, through the same hand-over that
+gives a late audio context a running sound at its offset. And **timing does not
+change**: a sound switched from four voices to one ends at the same moment and
+releases the waiting script at the same moment, exactly as turning the volume
+down does. `SoundPlayer` keeps owning the clock; `SoundOutput` decides only what
+is audible.
+
+The default is the PCjr rather than the speaker. The two have to be made to
+agree and agreeing downwards would take away half the notes of a game most
+people remember with them, so the speaker is a choice made on purpose. That is a
+decision rather than a detail, which is why it is written down.
+
 ## Save and restore (M8)
 
 The interpreter's state is kept as data rather than scattered across closures,
@@ -637,8 +730,11 @@ doing something.
 
 ## Rendering to canvas
 
-A single `<canvas>` at 320x200, scaled up by whole-number factors with smoothing
-disabled so the pixels stay sharp. The engine composes into an offscreen
+A single `<canvas>`, scaled up by whole-number factors with smoothing disabled
+so the pixels stay sharp. Its backing size is 320x200 while EGA is the only
+display there is; with the drivers of M10 it becomes whatever the running driver
+asks for -- Hercules is 720x348 -- and the aspect it is presented at follows the
+driver too. The engine composes into an offscreen
 `ImageData` buffer and blits once per frame; it never draws primitives with the
 canvas 2D API.
 
@@ -650,7 +746,28 @@ the window size.
 
 ## Application shell
 
-Deliberately thin: a page holding the canvas, a title, and an error surface.
+Deliberately thin: a page holding the canvas, a title, an error surface, and a
+row of controls for the things the player chooses rather than the game.
+
+Three of those controls exist, and two of them name work that is not built:
+
+```text
+Graphics    CGA / EGA / PCjr / Herc.  chosen; only EGA is drawn (M10-M13)
+Sound chip  PC speaker / PCjr         chosen; all four channels always play (M9)
+Sound on    on / off                  wired: the game's own sound flag
+```
+
+The unbuilt two are controls that say so rather than controls that quietly do
+nothing, and the choice each records is typed and kept in one place, so building
+it later means reading a value rather than deciding where the value lives. Both
+are more than a palette or a channel count: the game *branches* on which display
+and which sound hardware it is talking to, so either one means making the
+drawing and the reserved variable agree — see *Graphics* and *Sound (M7)*.
+
+The sound switch needed no deferral: off is a state the engine already has, and
+the button sets the same flag the game's own F2 and Options menu set, so the two
+cannot disagree. Its label follows the flag rather than remembering what was
+last pressed, because the game changes it too.
 
 Errors are reported rather than swallowed. A missing resource, a corrupt VOL
 header or an unimplemented opcode shows what failed and where, because during
@@ -703,8 +820,9 @@ only the final blit needs a canvas.
 
 ## Milestones
 
-Each milestone ends with something observable, not just code. All of them are
-done. The numbering is the one [plan.md](plan.md) works to.
+Each milestone ends with something observable, not just code. M0-M8 are done;
+M9-M13 are specified and not started. The numbering is the one
+[plan.md](plan.md) works to.
 
 ```text
 M0  Workspace foundation
@@ -742,12 +860,33 @@ M7  Sound
 M8  Save and restore
     Snapshot of the interpreter's state, storage, and the two dialogs.
     Ends with: save, reload the page, restore, and play continues.
+
+M9  The sound chip switch
+    The shell's PC speaker / PCjr choice made real: one voice or four.
+    Ends with: switching mid-theme changes the voices and nothing else.
+
+M10 The display driver seam
+    One driver per adapter, and the engine drawing through it. EGA first.
+    Ends with: nothing changes on screen, and the golden tests say so.
+
+M11 What the scripts are drawn on
+    configure.screen for real, the monitor and computer variables, PCjr.
+    Ends with: the mono layout moves where the game asks, still in EGA.
+
+M12 CGA
+    Four colours, and sixteen reached by dithering.
+    Ends with: every picture renders in CGA, and EGA is untouched.
+
+M13 Hercules
+    720x348, two colours, its own 8x12 font and object drawing.
+    Ends with: the canvas follows the driver, and the game is legible on it.
 ```
 
 ```text
-M0  complete    M3  complete    M6  complete
-M1  complete    M4  complete    M7  complete
-M2  complete    M5  complete    M8  complete
+M0  complete    M4  complete    M8  complete     M12 not started
+M1  complete    M5  complete    M9  not started  M13 not started
+M2  complete    M6  complete    M10 not started
+M3  complete    M7  complete    M11 not started
 ```
 
 ## Later phases
