@@ -22,7 +22,7 @@ These were settled before writing this spec and the design assumes them:
 stack        TypeScript + Vite, no UI framework
 game data    bundled with the app at build time
 v1 scope     playable core; no sound, no save/restore   (M0-M6, shipped)
-v2 scope     sound (M7), then save and restore (M8)
+v2 scope     sound (M7, shipped), then save and restore (M8)
 code sharing npm workspaces, web-agi imports agi-extract
 ```
 
@@ -444,9 +444,10 @@ distinguish "not in the vocabulary" from "recognised but not understood here".
 
 ## Sound (M7)
 
-Sound is not part of the playable core and was deliberately deferred, but the
-core was written so that adding it changes no control flow: every sound command
-already sets the flag scripts wait on. M7 changes only *when* that flag is set.
+Sound was not part of the playable core and was deliberately deferred, but the
+core was written so that adding it changed no control flow: every sound command
+already set the flag scripts wait on, and M7 changed only *when* that flag is
+set.
 
 ### SOUND resources
 
@@ -487,6 +488,20 @@ written as scheduled parameter changes on the audio clock rather than played fro
 the game cycle — the game's longest sound is 58 seconds, and the two clocks
 drift.
 
+The engine never talks to WebAudio itself. It holds a `SoundOutput`, of which
+WebAudio is one implementation and silence is another, so the rules below hold
+identically with no audio at all — which is the state of every headless test and
+of every browser before the player has touched the page.
+
+*The audio* is timed on the audio clock; *the flag a script waits on* is timed on
+the engine's own elapsed milliseconds, and is advanced before anything else in
+the loop. That is what lets a sound finish, and release the script waiting for
+it, while the game is parked on a window with no cycles running at all.
+
+The noise channel is an approximation and says so: the original is a shift
+register whose periodic mode has an audible pitch, and what is built is a
+looping buffer of random samples played at the rate the notes ask for.
+
 Two constraints shape the design more than the format does:
 
 - **An `AudioContext` starts suspended until a user gesture.** The context is
@@ -497,10 +512,19 @@ Two constraints shape the design more than the format does:
   sound and then waits on its flag would otherwise hang. This is the one deadlock
   playback can introduce that a no-op could not.
 
-`FLAG.SOUND_ON` and `VAR.SOUND_VOLUME` are already maintained by the cycle and
-already shown on the status line; playback follows them. Playback is stopped on
-`new.room` and on `quit`, with the rest of the per-room teardown, because
-scheduled audio otherwise outlives the room that started it.
+`FLAG.SOUND_ON` is the on/off switch the status line shows, and
+`VAR.SOUND_VOLUME` is a level from 0 to 15 that the game's own volume keys move
+— logic 0 raises it only while it is under 15, which is where the range comes
+from. Both are honoured, and neither touches timing: a sound turned down or off
+mid-way still takes exactly as long, so the scripts waiting on it are released
+at the same moment and the game's pacing does not change with a volume key.
+Nothing in the game ever sets the volume a first time, so the engine starts it
+at 15; started at zero, the whole game plays silently.
+
+Playback is stopped on `new.room`, on `quit` and on a restart, with the rest of
+the teardown, because scheduled audio otherwise outlives the room that started
+it — and each of those paths sets the waiting script's flag, for the same reason
+`stop.sound` does.
 
 ## Save and restore (M8)
 
@@ -623,8 +647,8 @@ only the final blit needs a canvas.
 
 ## Milestones
 
-Each milestone ends with something observable, not just code. M0-M6 are done;
-M7 and M8 are specified below and not yet built. The numbering is the one
+Each milestone ends with something observable, not just code. M0-M7 are done;
+M8 is specified below and not yet built. The numbering is the one
 [plan.md](plan.md) works to.
 
 ```text
@@ -667,7 +691,7 @@ M8  Save and restore
 
 ```text
 M0  complete    M3  complete    M6  complete
-M1  complete    M4  complete    M7  not started
+M1  complete    M4  complete    M7  complete
 M2  complete    M5  complete    M8  not started
 ```
 

@@ -22,11 +22,13 @@ import {
   TextLayer,
   type TextWindow,
 } from '../render/text.ts';
+import { SoundPlayer } from '../audio/player.ts';
+import { parseSound } from '../resources/sound.ts';
 import { Inventory } from './inventory.ts';
 import type { Interaction, Key } from './interaction.ts';
 import { KeyBindings, MenuBar } from './menu.ts';
 import { noBlock, type Block } from './motion.ts';
-import { FLAG, GameState, VAR } from './state.ts';
+import { FLAG, GameState, MAX_SOUND_VOLUME, VAR } from './state.ts';
 import { ViewTable, type View, type ViewObject } from './viewtable.ts';
 
 /** Raised to abandon the rest of a cycle, through however many nested calls. */
@@ -90,6 +92,8 @@ export interface MachineOptions {
   resources: ResourceManager;
   objects: ObjectFile;
   vocabulary?: Vocabulary;
+  /** Where sound comes out. Omitted, the engine plays silently but in time. */
+  sound?: SoundPlayer;
   /** Called the first time each unimplemented command is reached. */
   onStub?: (name: string) => void;
 }
@@ -195,6 +199,9 @@ export class Machine {
   /** What the player is pressing. */
   readonly keyboard = new Keyboard();
 
+  /** The sound that is playing, and who is waiting for it to finish. */
+  readonly sound: SoundPlayer;
+
   /**
    * Whether the arrow keys steer ego.
    *
@@ -226,6 +233,7 @@ export class Machine {
     this.objects = options.objects;
     this.vocabulary = options.vocabulary;
     this.inventory = new Inventory(options.objects);
+    this.sound = options.sound ?? new SoundPlayer();
     this.#onStub = options.onStub;
   }
 
@@ -617,8 +625,78 @@ export class Machine {
     throw new Unwind('new-room', room);
   }
 
+  /**
+   * Start a sound, and remember who is waiting for it.
+   *
+   * A missing SOUND resource is a game-data oddity rather than a defect: it is
+   * noted and the flag is set at once, which is exactly what the engine did for
+   * every sound before there was any.
+   *
+   * @param id   SOUND resource number
+   * @param flag flag to set when the sound ends; 0 when the script does not wait
+   */
+  playSound(id: number, flag: number): void {
+    let sound;
+    try {
+      sound = parseSound(this.resources.loadSync('sound', id));
+    } catch {
+      this.stub(`sound: resource ${id} could not be played`);
+      if (flag) this.state.setFlag(flag, true);
+      return;
+    }
+
+    this.#applySoundVolume();
+    this.#releaseSoundFlag(this.sound.play(sound, flag));
+
+    // A sound with nothing in it must not leave a script waiting for a moment
+    // that never comes.
+    if (sound.durationMs <= 0) this.#releaseSoundFlag(this.sound.stop());
+  }
+
+  /**
+   * Stop whatever is playing.
+   *
+   * The flag is set on the way out. A script that stops its own sound and then
+   * waits on that sound's flag is the one deadlock real playback can introduce
+   * and the no-op it replaced could not, so stopping releases the waiter just
+   * as finishing does.
+   */
+  stopSound(): void {
+    this.#releaseSoundFlag(this.sound.stop());
+  }
+
+  /**
+   * Let the sound age by real time.
+   *
+   * Driven from the loop rather than from a cycle, so a sound keeps running --
+   * and finishes -- while the game is parked on a window waiting for a key.
+   */
+  tickSound(elapsedMs: number): void {
+    this.#applySoundVolume();
+    this.#releaseSoundFlag(this.sound.tick(elapsedMs));
+  }
+
+  /**
+   * Follow the game's own sound settings.
+   *
+   * The flag is the on/off switch scripts and the status line use. The variable
+   * is a level from 0 to 15 that the game's own volume keys move -- logic 0
+   * increments it while it is under 15 and decrements it, which is where the
+   * range comes from -- so it is honoured rather than treated as decoration.
+   */
+  #applySoundVolume(): void {
+    const on = this.state.getFlag(FLAG.SOUND_ON);
+    const level = Math.min(MAX_SOUND_VOLUME, this.state.getVar(VAR.SOUND_VOLUME));
+    this.sound.setVolume(on ? level / MAX_SOUND_VOLUME : 0);
+  }
+
+  #releaseSoundFlag(flag: number): void {
+    if (flag) this.state.setFlag(flag, true);
+  }
+
   /** Stop the engine. */
   quit(): never {
+    this.stopSound();
     this.stopped = true;
     throw new Unwind('quit');
   }
@@ -670,6 +748,7 @@ export class Machine {
     this.lastLine = '';
     this.controllers.clear();
     this.keyboard.clear();
+    this.stopSound();
 
     // The menu and the key bindings deliberately survive. The game defines its
     // menus only in the block logic 0 runs the first time, and skips that block

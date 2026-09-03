@@ -3,7 +3,7 @@
 Companion to [spec.md](spec.md). The spec says *what* to build; this says in what
 order, in which files, and how each step is proven to work.
 
-> **M0-M6 are done and shipped; M7 and M8 are not started.** The finished
+> **M0-M7 are done and shipped; M8 is not started.** The finished
 > milestones are kept as they were written, for the reasoning behind the
 > sequencing and for the format measurements in the next section. They are not a
 > description of the code as built: several modules ended up named or split
@@ -19,7 +19,7 @@ M3  Reading LOGIC             complete
 M4  The machine runs          complete
 M5  Ego moves                 complete
 M6  Playable                  complete
-M7  Sound                     not started
+M7  Sound                     complete
 M8  Save and restore          not started
 ```
 
@@ -323,7 +323,7 @@ commands, `said` tests fire, inventory opens, menus work.
 
 ---
 
-## M7 — Sound — not started
+## M7 — Sound — complete
 
 The first milestone with a v1 non-goal in it. Nothing about it changes the
 engine's control flow, because M4 already made every sound command set the flag
@@ -376,6 +376,13 @@ src/audio/player.ts           schedule a parsed sound; stop; report completion
 src/engine/commands/core.ts   sound / stop.sound / load.sound become real
 ```
 
+*As built:* a third module, `src/audio/output.ts`, holds the `SoundOutput`
+interface and the WebAudio implementation, leaving `player.ts` with only what
+the engine knows: which sound is running and who is waiting for it. That split
+is what lets every rule below be tested headlessly against a recording output,
+with WebAudio itself the only part that needs a browser. `SILENT_OUTPUT` in the
+same file is what the engine runs against before a gesture has happened.
+
 `sound.ts` is a decoder and belongs with the other format readers, next to
 `words.ts` and `objects.ts`: it is about the *format*, so it is written the way
 the spec says such things are written — as something that could move into a
@@ -410,6 +417,34 @@ Then the decoder, then the player:
    then waits for it hangs — the one deadlock this milestone can introduce that
    M4's no-op could not.
 
+*As built:* audio is scheduled on the audio clock as planned, but *the flag* is
+timed off the engine's own elapsed milliseconds, in `SoundPlayer.tick`, called
+from `Cycle.advance` before anything else. Two reasons, both found while
+building it: the flag has to arrive on the same schedule when there is no audio
+at all, which is the state every headless test and every pre-gesture browser is
+in; and it has to arrive while the game is parked on a window, which is exactly
+when no cycle is running. Every way a sound can end reports its flag — finishing,
+being displaced by the next sound, being stopped, a room change, a restart and a
+missing resource — because each of those is a script left waiting otherwise.
+
+### What the game turned out to want
+
+Two things the plan did not anticipate, both read out of the game rather than
+guessed:
+
+- **The volume variable is live.** Logic 0 contains `if (lessn(23, 15) &&
+  controller(39)) increment(23)` and a matching `decrement`, so the game's own
+  volume keys move `VAR.SOUND_VOLUME` and the game itself supplies the 0-15
+  range. It is honoured rather than treated as decoration — and, because
+  nothing in the game ever sets it a first time, `Cycle.start` has to initialise
+  it to 15 or the whole game plays silently.
+- **Neither volume nor the sound flag may touch timing.** Turning the sound off
+  mid-sound leaves its length alone, so a script waiting on it is released at
+  the same moment either way. A game whose pacing changes with a volume key is
+  a different game.
+
+The game reaches `sound` 38 times, `stop.sound` 7 and `load.sound` 32.
+
 Scheduling ahead of the clock means playback outlives a stalled tab, so the
 player is stopped on `new.room` and on `quit` alongside the rest of the
 per-room teardown.
@@ -418,6 +453,17 @@ per-room teardown.
 turns it off and on, `stop.sound` silences it without hanging the script that
 started it, and all 28 SOUND resources parse with every channel accounted for
 byte by byte.
+
+**Done.** 23 tests in `test/sound.test.ts`, and the whole suite at 256. The
+byte-by-byte one is the strong one: for all 112 channels in the game, notes x 5
+plus the two-byte terminator equals the span to the next channel's offset, which
+a wrong note size cannot satisfy. The end-to-end one runs the real opening for
+400 cycles through the real command path and finds the game asking for its
+58-second theme, with nothing unimplemented reached on the way. The WebAudio
+scheduler is tested against a recording stand-in for `AudioContext`, which is
+what stops the one module a browser is needed for from being the one module
+nothing checks; only `context.ts`, which exists to obey the autoplay policy,
+has no test.
 
 ---
 

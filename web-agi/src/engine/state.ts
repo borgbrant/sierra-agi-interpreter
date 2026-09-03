@@ -12,6 +12,14 @@
  * discovering the number is wrong; one that says `variables[6]` does not.
  */
 
+/**
+ * Loudest the game's own volume control goes.
+ *
+ * Logic 0 raises VAR.SOUND_VOLUME only while it is under 15, which is where
+ * the ceiling comes from -- it is the game's number, not a choice made here.
+ */
+export const MAX_SOUND_VOLUME = 15;
+
 /** Variables the interpreter reserves for itself. Scripts may read all of them. */
 export const VAR = {
   CURRENT_ROOM: 0,

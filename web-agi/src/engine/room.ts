@@ -42,6 +42,11 @@ export function enterRoom(machine: Machine, room: number): void {
   machine.playerControl = true;
   machine.keyboard.clear();
 
+  // A sound belongs to the room that started it, as it did in the original --
+  // scheduled audio otherwise plays on over a room that knows nothing about
+  // it, and the script that was waiting for it is long gone.
+  machine.stopSound();
+
   // Ego arrives at the opposite edge from the one it left by, which is what
   // makes walking off the side of a screen continue into the next one.
   repositionEgoForEdge(machine, state.getVar(VAR.EGO_EDGE_TOUCHED));

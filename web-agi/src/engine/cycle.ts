@@ -20,7 +20,7 @@ import type { Interaction } from './interaction.ts';
 import { Machine, Unwind } from './machine.ts';
 import { checkAllMotions, cycleObjects, updatePositions } from './motion.ts';
 import { enterRoom } from './room.ts';
-import { FLAG, VAR } from './state.ts';
+import { FLAG, MAX_SOUND_VOLUME, VAR } from './state.ts';
 
 /** The interpreter's clock: cycle delays are counted in twentieths of a second. */
 export const TICK_MS = 50;
@@ -83,6 +83,9 @@ export class Cycle {
     machine.state.setVar(VAR.COMPUTER_TYPE, 0); // IBM PC
     machine.state.setVar(VAR.MONITOR_TYPE, 3); // EGA
     machine.state.setVar(VAR.SOUND_GENERATOR, 1); // PC speaker
+    // The game turns this down and up with its volume keys; nothing sets it
+    // for the first time, so a game started at zero would play silently.
+    machine.state.setVar(VAR.SOUND_VOLUME, MAX_SOUND_VOLUME);
     machine.state.setVar(VAR.MAX_INPUT_LENGTH, 41);
     machine.state.setVar(VAR.FREE_MEMORY_PAGES, 255);
     machine.state.setFlag(FLAG.SOUND_ON, true);
@@ -302,6 +305,11 @@ export class Cycle {
   advance(elapsedMs: number): number {
     const { machine } = this;
     if (machine.stopped) return 0;
+
+    // Sound is aged by real time, before anything else and whether or not a
+    // cycle runs: a sound plays on through a window the game is parked on, and
+    // the script waiting for it has to be released while it is parked.
+    machine.tickSound(elapsedMs);
 
     // While the game waits for the player, time passes for what it is waiting
     // on -- a window can close itself -- but not for the game. Letting the

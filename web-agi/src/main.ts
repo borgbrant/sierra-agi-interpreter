@@ -1,3 +1,5 @@
+import { enableAudioOnGesture } from './audio/context.ts';
+import { SoundPlayer } from './audio/player.ts';
 import { buildHandlers } from './engine/commands/index.ts';
 import { Cycle } from './engine/cycle.ts';
 import { Machine } from './engine/machine.ts';
@@ -41,8 +43,14 @@ try {
   const vocabulary = Vocabulary.parse(wordBytes);
   const summary = summariseGame(resources, objects, vocabulary);
 
-  const machine = new Machine({ resources, objects, vocabulary });
+  const sound = new SoundPlayer();
+  const machine = new Machine({ resources, objects, vocabulary, sound });
   machine.setHandlers(buildHandlers());
+
+  // Audio cannot exist until the player has touched the page, so the engine
+  // starts against the silent output and is given a real one at the first key
+  // or click. Nothing about the game's timing changes when that happens.
+  enableAudioOnGesture(sound);
 
   const cycle = new Cycle(machine);
   cycle.start(0);
@@ -83,6 +91,8 @@ try {
     'arrow keys walk ego; type commands and press ENTER',
     'ESC opens the menu, TAB the inventory, and the game\'s own shortcuts work',
     '(Ctrl-B, Alt-Z, F1-F10 and the rest, as its menus advertise)',
+    'sound plays from your first keypress, and the game\'s own sound setting',
+    'turns it off and on',
     'F7 toggles the priority screen, F8 dumps the engine state below,',
     'F9 disassembles the current room\'s script',
   ]);

@@ -72,11 +72,11 @@ export const CORE: Record<string, Handler> = {
   'load.sound': () => {},
 
   // --- sound -------------------------------------------------------------
-  // There is no sound yet, but a script that starts a sound waits on the flag
-  // the sound sets when it finishes. Setting it at once means the wait is over
-  // immediately; leaving it unset deadlocks the script forever.
-  sound: (m, [, flag]) => m.state.setFlag(flag!, true),
-  'stop.sound': () => {},
+  // A script that starts a sound waits on the flag the sound sets when it is
+  // over, so every way a sound can end has to set it -- finishing, being cut
+  // off by the next sound, and being stopped. The machine owns that rule.
+  sound: (m, [id, flag]) => m.playSound(id!, flag!),
+  'stop.sound': (m) => m.stopSound(),
 
   // --- odds and ends -----------------------------------------------------
   random: (m, [low, high, v]) => {
