@@ -1,0 +1,7 @@
+node_modules
+**/out
+**/data
+**/dist
+
+# Bundled game resources are copied in by `npm run game:sync`, never committed.
+web-agi/public/game/

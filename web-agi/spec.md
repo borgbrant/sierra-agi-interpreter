@@ -1,0 +1,555 @@
+# Spec: web-agi — a Sierra AGI engine in the browser
+
+## Overview
+
+Build a client-side web application that plays Sierra AGI v2 games. The engine
+runs entirely in the browser: it loads the game's resource files, interprets the
+game's LOGIC bytecode, and renders the result to a `<canvas>`.
+
+This is an interpreter, not a viewer. `agi-extract` decodes AGI resources into
+files; `web-agi` decodes them into a running game — it adds the LOGIC virtual
+machine, the object/sprite system, the input parser and the game loop that
+`agi-extract` deliberately has no need for.
+
+No server is involved at run time. There is no backend, no API, and no
+server-side rendering.
+
+## Decisions
+
+These were settled before writing this spec and the design assumes them:
+
+```text
+stack        TypeScript + Vite, no UI framework
+game data    bundled with the app at build time
+v1 scope     playable core; no sound, no save/restore
+code sharing npm workspaces, web-agi imports agi-extract
+```
+
+### Target game
+
+The bundled game determines which interpreter the engine must imitate, so it is
+part of the design rather than a detail of deployment:
+
+```text
+game          Leisure Suit Larry 1, version 1.00
+interpreter   AGI 2.440
+opcode table  170 action commands
+```
+
+Read from the game files themselves (`AGIDATA.OVL` carries the version string,
+and the interpreter file sizes key the version table in the AGI documentation).
+The command count is the game's own, not the documentation's: see *Bytecode*.
+The engine is still written against AGI v2 in general — the version decides which
+opcode table is loaded, not how the engine is structured.
+
+**On bundling game data.** The game files are copyrighted, and bundling puts
+them in the repository and ships them on deploy. That is a deliberate choice
+recorded here, not an oversight. To keep the option open, all resource loading
+goes through a `ResourceSource` interface (see _Resource layer_), so serving a
+different game, or letting a player supply their own files, becomes a second
+implementation of one small interface rather than a rewrite.
+
+## Goals
+
+- Play an AGI v2 game from its original, unmodified resource files.
+- Render the visual screen, sprites, text and menus faithfully at 320x200.
+- Interpret LOGIC bytecode, including the `said` parser tests.
+- Accept keyboard input: walking, the text prompt, and menus.
+- Reuse `agi-extract`'s PICTURE and VIEW decoders rather than reimplementing them.
+- Run at a stable, correct cycle rate independent of display refresh rate.
+
+## Non-goals
+
+- No sound in v1 (specified as a later phase).
+- No save/restore in v1 (specified as a later phase).
+- No AGI v3 support in v1; the resource layer is where it would be added.
+- No LOGIC decompiler or authoring tools. The engine executes bytecode; it does
+  not produce source.
+- No mobile/touch controls in v1.
+- No SCI games, ever. Different engine entirely.
+
+## Repository layout
+
+The repository becomes an npm workspace with two packages:
+
+```text
+agi-extract/            (existing) CLI and resource decoders
+web-agi/                (new) the browser engine
+  index.html
+  vite.config.ts
+  public/
+    game/               bundled game resources, copied verbatim
+  src/
+    main.ts             entry point: build the app shell, start the engine
+    shell/              DOM around the canvas: mount, errors, debug keys
+    resources/          loading and decoding AGI resource files
+    logic/              LOGIC bytecode: reader, opcode table, disassembler
+    engine/             the machine, its state, the game cycle, objects,
+                        rooms, motion, menus, inventory
+    render/             screens, sprites, text, canvas output
+    input/              keyboard, the command line, the parser
+  test/                 unit tests, mirroring src/
+package.json            workspace root
+```
+
+## Reuse from agi-extract
+
+`agi-extract` already implements, and has tests for, the parts of the format
+this engine would otherwise duplicate:
+
+```text
+reuse as-is     pic.js      PICTURE interpreter -> visual + priority screens
+                view.js     VIEW decoder: cels, loops, mirroring, transparency
+                directory.js  3-byte DIR entry parsing
+                volume.js   VOL header validation (parseVolHeader)
+
+port            files.js    GameFiles/VolumeFile are built on node:fs
+                            -> web-agi supplies its own byte-range reader
+
+not needed      png.js      the browser draws to canvas, not PNG
+                cli.js, extract.js  file-writing concerns
+```
+
+Two portability details to resolve when wiring this up:
+
+- `view.js` decodes the description text with Node's `Buffer`. The engine needs
+  that path to work without `Buffer`, so this becomes a small change in
+  `agi-extract` (use `TextDecoder` with `latin1`) rather than a fork.
+- `volume.js` reads through a `FileHandle`. The engine reads from an
+  `ArrayBuffer` already in memory, so only `parseVolHeader` is shared; the
+  seek-and-read wrapper is reimplemented against the byte source.
+
+Anything the engine adds that is genuinely about the _format_ rather than about
+_playing_ — the LOGIC resource reader, WORDS.TOK, OBJECT — is written so it could
+later move into a shared core package. It is not moved in v1.
+
+## Resource layer
+
+### Source interface
+
+Everything above this line is unaware of where bytes come from:
+
+```ts
+interface ResourceSource {
+  /** Case-insensitive, like the DOS originals. Returns null when absent. */
+  read(name: string): Promise<Uint8Array | null>;
+}
+```
+
+v1 ships one implementation, `BundledSource`, which fetches from `public/game/`
+using a manifest generated at build time (a directory listing is not available
+over HTTP). A `DirectorySource` backed by the File System Access API, or a
+`ZipSource`, would be later additions requiring no engine changes.
+
+### Files read
+
+```text
+LOGDIR, PICDIR, VIEWDIR, SNDDIR   resource directories
+VOL.0 ... VOL.n                   resource payloads
+OBJECT                            inventory items, encrypted
+WORDS.TOK                         vocabulary, packed and encrypted
+```
+
+### Resource manager
+
+Loads the four directory files once, then serves resources on demand:
+
+```ts
+class ResourceManager {
+  load(type: ResourceType, id: number): Promise<Uint8Array>; // payload, no VOL header
+  isPresent(type: ResourceType, id: number): boolean;
+}
+```
+
+VOL files are fetched whole and cached as `ArrayBuffer`s; AGI VOL files are
+small enough that range requests are not worth the complexity. Resource payloads
+are extracted with the same directory-entry and VOL-header logic `agi-extract`
+uses, including its validation.
+
+### OBJECT
+
+Holds the inventory items and the maximum number of animated objects. Most games
+encrypt it: bytes are XORed cyclically against a fixed 11-character key
+(`Avis Durgan`; AGDS games use `Alex Simkin`). Some early games do not encrypt at
+all, so the loader must detect which it is holding rather than assume.
+
+Provides item names and each item's starting room, which `has`, `obj.in.room`
+and the inventory screen depend on.
+
+### WORDS.TOK
+
+The vocabulary the parser matches against. It is both packed and encrypted, and
+its words are stored in alphabetical order because the packing depends on that
+ordering. It opens with a 26 x 2-byte index giving where the words for each
+initial letter begin. That index is **big-endian**, against AGI's usual
+little-endian convention — read little-endian it produces offsets outside the
+file, which is a quick way to confirm the reader is right.
+
+Each word carries a word number. Several words may share one number, which is how
+the game expresses synonyms: `said` tests compare word numbers, never spellings.
+
+## Interpreter state
+
+The machine the LOGIC code runs on:
+
+```text
+256 variables      8-bit, numbered 0-255; 0-26 reserved by the interpreter
+256 flags          1-bit, numbered 0-255; 0-15 reserved by the interpreter
+12 strings         40 characters each
+inventory items    from OBJECT
+screen objects     the view table, entry 0 being ego
+```
+
+Numbering is independent per type: variable 5, flag 5, string 5 and object 5 are
+unrelated.
+
+The reserved variables and flags are the interface between the engine and the
+game's scripts — the engine writes things like the current room, ego's position
+and edge contacts, and the scripts read them. Getting this set right is what
+makes a game behave rather than merely run; each reserved slot is implemented
+against the specification's table, with the tests naming the behaviour rather
+than the number.
+
+## LOGIC resources
+
+### Resource format
+
+After the 5-byte VOL header is stripped, a LOGIC payload begins with a 2-byte
+little-endian offset to the message section. Bytecode occupies everything from
+just after that offset field up to where the messages begin.
+
+```text
+byte 0-1   offset to the message section
+byte 2..   bytecode
+...        message section
+```
+
+### Messages
+
+Printable text lives at the end of the resource, encrypted with the same
+cyclic-XOR scheme as OBJECT. Messages are addressed by number from the bytecode,
+not inlined.
+
+```text
+section[0]      number of messages
+section[1..2]   end position of the section
+section[3..]    count x 2 offset table, 16-bit, NOT encrypted;
+                offsets are relative to section + 1, and an offset of 0
+                means the message does not exist
+then            null-terminated strings, encrypted
+```
+
+Two details decide whether the text comes out readable, and neither is stated
+outright in the format documentation:
+
+- An offset of `0` marks an absent message rather than one at position zero.
+  Message numbering is sparse; slots are skipped.
+- **The cipher key restarts at the start of the strings region**, not at the
+  start of the section or of the resource. Confirmed by decrypting every message
+  in the bundled game under each candidate anchor: the restarting anchor yields
+  100% printable characters across all 45 readable resources and 2040 message
+  slots, while every other anchor falls to roughly 90%.
+
+### Bytecode
+
+Two instruction spaces:
+
+```text
+test commands     used only inside if-conditions
+action commands   everything else, opcodes from 0x00 upward
+```
+
+The bundled game's interpreter, 2.440, uses **170 action commands**, opcodes
+0x00-0xA9. The count is version-specific: later Sierra interpreters added
+commands. The opcode table therefore holds every command any version knows, in
+opcode order, together with a per-version count of how many of them that version
+recognises; the engine records which interpreter version a game targets and
+refuses an opcode above that version's ceiling rather than assuming one table
+fits all.
+
+Argument counts are shared across versions, not per-version. The documentation
+notes that at least one command's argument count differs between interpreters,
+but no such command appears in the bundled game, and the whole-game decode below
+would not pass if one did. Should a second game need it, the per-command entry is
+where a version-specific count would go.
+
+The documentation's version table gives 169 for 2.440, but the game itself uses
+opcode 0xA9 (`close.window`). Rejecting it fails one resource; accepting it makes
+all 46 decode exactly to their message section with every jump landing on an
+instruction boundary. Desync corrupts a walk rather than tidying it, so the game
+is the authority here. Nothing above 0xA9 appears anywhere in it.
+
+The opcode table itself is derived rather than transcribed: the documentation's
+opcode column is damaged in runs, but its rows are a complete ordered listing, so
+an entry's opcode is its position. Positions 0x00-0x29 still carry their printed
+opcode and agree exactly, and `return`, `new.room`, `print` and `quit` land where
+AGI is independently known to put them. The whole-game walk then settles it.
+
+Most commands take one to seven arguments, each a fixed single byte whose meaning
+(variable number, flag number, message number, literal…) comes from the table.
+Two constructs are irregular and need their own decoding:
+
+- **`said`** takes a variable-length list of 16-bit word numbers.
+- **`if`** blocks contain a condition expression with `or` and `not` operators
+  and a 16-bit jump displacement to the else/end target.
+
+A disassembler is built alongside the interpreter, from the same table. It is not
+a gameplay feature; it exists so that when a game misbehaves the failing script
+can be read, and it is reachable at run time through the debug overlay's `F9`.
+
+## The LOGIC interpreter
+
+Executes one resource's bytecode against the shared state. Commands are dispatched
+through a table of handlers keyed by opcode, so an unimplemented command fails
+loudly with its number and the script position rather than silently corrupting
+state.
+
+Control flow within a script is a program counter over the bytecode. Scripts call
+other scripts; a call runs to completion and returns, so the engine keeps a call
+stack and guards against runaway recursion.
+
+Three commands end a cycle rather than returning normally, and the interpreter
+must unwind out of every nested call when they run:
+
+```text
+new.room        change room; abandons the rest of the cycle
+return          end this script
+quit            stop the engine
+```
+
+## The game cycle
+
+One iteration of the interpreter's loop, in order:
+
+```text
+1. wait out the cycle delay
+2. clear the keyboard buffer
+3. poll keyboard input
+4. update the reserved variables and flags from input and engine state
+5. recalculate the direction of motion of every controlled, updating object
+6. execute LOGIC 0, which calls whatever other scripts the game needs
+7. check whether new.room was issued, and if so restart with the new room
+```
+
+The cycle rate is set by the game through a reserved variable, so the loop is
+driven by a fixed-timestep accumulator, not by `requestAnimationFrame` alone:
+rendering may run at display rate, but game cycles must not. A slow frame must
+never make the game run fast, and the loop caps how many cycles it will catch up
+in one frame rather than spiralling.
+
+### Room changes
+
+`new.room` is not a jump. It unloads the current room's resources, resets the
+non-persistent parts of the state, loads the new room's LOGIC, and starts a fresh
+cycle. The sequence is precise and a common source of subtle bugs, so it is
+implemented as one documented function with its own tests.
+
+## Graphics
+
+### Screens
+
+The engine keeps the same two 160x168 screens `agi-extract` already produces:
+
+```text
+visual screen     what the player sees, one EGA colour index per pixel
+priority screen   depth and control information, never displayed
+```
+
+An AGI pixel is twice as wide as it is tall, so the picture is presented at
+320x168.
+
+### Priority and control
+
+Priority values 4-15 are drawing priorities: a sprite is drawn only where its
+priority is at least that of the background, which is what puts ego behind a tree.
+The screen is divided into roughly eleven horizontal priority bands, and an
+object's priority normally follows the band its base is standing in.
+
+Values 0-3 are not depth but control information the game reacts to:
+
+```text
+0  unconditional obstacle
+1  conditional obstacle
+2  alarm line, triggers an event when crossed
+3  water, or a surface an object is confined to
+```
+
+Movement checks read these, which is why the priority screen must be rendered as
+carefully as the visible one even though nobody sees it.
+
+### Display layout
+
+The full 320x200 display is a 40x25 grid of 8x8 characters:
+
+```text
+row 0        status line
+rows 1-21    picture area, 168 pixels tall
+rows 22-24   prompt and input line
+```
+
+Text uses the standard 8x8 IBM PC font. The engine embeds a font bitmap as a
+build asset; it is not read from the game files.
+
+## Objects and sprites
+
+The view table holds the animated objects. Object 0 is ego, the character the
+player controls; the rest are controlled entirely by scripts.
+
+Each entry tracks its view, loop and cel, its position, direction, step and cycle
+timing, its priority, and a set of flags covering how it moves, whether it
+animates, whether it observes obstacles, and whether it is drawn at all.
+
+Per cycle, for each updating object: advance cel cycling, apply motion, resolve
+blocking against control lines and the screen edges, then draw. Drawing composites
+the current cel onto the visual screen through the priority test, honouring the
+cel's transparent colour, with mirroring resolved exactly as `agi-extract` does.
+
+The engine restores what a sprite covered before the next cycle draws it, rather
+than redrawing the whole picture, matching the original's model of a static
+background with objects composited over it.
+
+## Text, windows and menus
+
+- **Status line**: score and sound state, drawn on row 0 when enabled.
+- **Message windows**: word-wrapped boxes drawn over the picture, dismissed by a
+  keypress or after a timeout.
+- **Inventory screen**: the item list, and item close-ups drawn from a VIEW.
+- **Menus**: the pull-down menu bar the game defines through LOGIC commands.
+
+All of these suspend the game cycle while open, which the loop must model
+explicitly rather than by blocking.
+
+## Input and the parser
+
+Keyboard handling covers three modes: walking (arrow keys set ego's direction),
+the text prompt (a line editor over the input line), and menu navigation.
+
+When the player submits a line, the parser:
+
+```text
+1. lowercases and strips punctuation
+2. matches the longest possible vocabulary entry at each position,
+   because entries may be multi-word phrases
+3. discards words the vocabulary marks as ignorable
+4. produces the list of word numbers the said tests compare against
+5. sets the reserved flags that tell the scripts input is waiting
+```
+
+An unrecognised word must be reported as such, which means the parser has to
+distinguish "not in the vocabulary" from "recognised but not understood here".
+
+## Rendering to canvas
+
+A single `<canvas>` at 320x200, scaled up by whole-number factors with smoothing
+disabled so the pixels stay sharp. The engine composes into an offscreen
+`ImageData` buffer and blits once per frame; it never draws primitives with the
+canvas 2D API.
+
+Rendering is decoupled from the cycle: the engine marks the frame dirty, and the
+next animation frame paints it. A cycle that changes nothing costs no drawing.
+
+The canvas is letterboxed to preserve aspect ratio, and the scale factor follows
+the window size.
+
+## Application shell
+
+Deliberately thin: a page holding the canvas, a title, and an error surface.
+
+Errors are reported rather than swallowed. A missing resource, a corrupt VOL
+header or an unimplemented opcode shows what failed and where, because during
+development those are the interesting events.
+
+A debug overlay, behind three function keys, exposes what would otherwise
+require a debugger: `F7` swaps the visual screen for the priority screen, `F8`
+dumps the engine's state -- the view table, the room and cycle counters, the
+variables and flags the game has touched, and the commands it reached that the
+engine cannot yet do -- and `F9` disassembles the current room's script.
+
+## Error handling
+
+The engine distinguishes three kinds of failure:
+
+```text
+load failure       missing or malformed game files; fatal, reported in the shell
+engine defect      unimplemented opcode, bad jump; fatal, reported with context
+game-data oddity   a script doing something unusual but legal; logged, continue
+```
+
+`agi-extract`'s stable error codes are reused for anything about resource
+loading, so both projects name the same failures the same way.
+
+## Testing
+
+`node:test` as in `agi-extract`, run against the source directly.
+
+```text
+unit         opcode decoding, message decryption, WORDS.TOK and OBJECT parsing,
+             parser matching, priority and blocking rules
+golden       load the bundled game, run N cycles from a fixed start, and compare
+             a hash of the visual screen against a recorded value
+regression   each fixed game bug becomes a test that runs the shortest cycle
+             sequence reproducing it
+```
+
+The golden tests matter more than usual here: an interpreter has enormous state,
+and most defects show up as a wrong picture rather than an exception. Being able
+to say "room 1 renders identically to yesterday" is what makes changes safe.
+
+Rendering is testable headlessly because the engine composes into a pixel buffer;
+only the final blit needs a canvas.
+
+## Milestones
+
+Each milestone ends with something observable, not just code.
+
+```text
+M1  Workspace and shell
+    npm workspaces, Vite, canvas mounted, game files bundled and fetched.
+    Ends with: the four DIR files parsed, resource counts printed on screen.
+
+M2  Static rendering
+    Resource manager, agi-extract's decoders wired in.
+    Ends with: any PICTURE drawn on the canvas, any VIEW cel drawn over it.
+
+M3  LOGIC reader
+    Bytecode reader, opcode table, message decryption, disassembler.
+    Ends with: any LOGIC resource disassembled to readable text.
+
+M4  The machine runs
+    State, interpreter, cycle loop, room loading.
+    Ends with: the game's first room loads and its script runs without ego.
+
+M5  Ego moves
+    View table, sprite drawing, motion, priority and control lines.
+    Ends with: walking around room one, correctly occluded and blocked.
+
+M6  The game is playable
+    Text windows, status line, inventory, menus, the prompt and the parser.
+    Ends with: the game's opening is playable from the first room onward.
+```
+
+## Later phases
+
+Specified now so the v1 design does not preclude them.
+
+- **Sound.** AGI PCjr sound is three tone channels plus one noise channel, driven
+  by SOUND resources. WebAudio maps onto this well. The engine must already treat
+  sound commands as no-ops that set the flags scripts wait on, so adding real
+  playback later does not change control flow.
+- **Save and restore.** The interpreter's state is a serialisable value:
+  variables, flags, strings, the view table, inventory and the current room. The
+  state is therefore kept as data rather than scattered across closures, so
+  serialising it later is a matter of writing it out.
+- **Player-supplied game files.** A second `ResourceSource` implementation.
+- **AGI v3.** Different directory layout and compressed VOL entries; confined to
+  the resource layer by design.
+
+## Open questions
+
+To settle before or during the milestone they affect:
+
+- Whether the game needs a game-specific loader. Some AGI games have quirks the
+  original interpreter special-cased.
+- How faithfully to reproduce the original's timing. The cycle rate is specified,
+  but the original's speed also depended on the hardware it ran on.
+- Whether the debug overlay ships in the production build or is stripped.

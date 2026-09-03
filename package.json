@@ -1,0 +1,20 @@
+{
+  "name": "agi-tools",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Tools for Sierra AGI games: a resource extractor and a browser engine",
+  "type": "module",
+  "workspaces": [
+    "agi-extract",
+    "web-agi"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present",
+    "dev": "npm run dev --workspace web-agi",
+    "build": "npm run build --workspace web-agi"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

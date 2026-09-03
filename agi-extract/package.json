@@ -1,0 +1,32 @@
+{
+  "name": "agi-extract",
+  "version": "1.0.0",
+  "description": "Extract raw Sierra AGI resources from AGI v2 games, optionally rendering PICTUREs and VIEWs to PNG",
+  "type": "module",
+  "bin": {
+    "agi-extract": "bin/agi-extract.js"
+  },
+  "exports": {
+    ".": "./src/agi/extract.js",
+    "./cli": "./src/cli.js",
+    "./files": "./src/agi/files.js",
+    "./directory": "./src/agi/directory.js",
+    "./volume": "./src/agi/volume.js",
+    "./errors": "./src/util/errors.js",
+    "./pic": "./src/agi/pic.js",
+    "./png": "./src/util/png.js",
+    "./view": "./src/agi/view.js",
+    "./volume-file": "./src/agi/volume-file.js"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\""
+  },
+  "license": "MIT"
+}
