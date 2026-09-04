@@ -7,6 +7,7 @@ import { FLAG, VAR } from './engine/state.ts';
 import { bindKeyboard } from './input/keyboard.ts';
 import { present } from './engine/present.ts';
 import { Renderer } from './render/renderer.ts';
+import { decodeHgcDither, type HgcDither } from './render/hgcdither.ts';
 import { decodeHgcFont, type HgcFont } from './render/hgcfont.ts';
 import { fingerprint } from './engine/snapshot.ts';
 import { ResourceManager } from './resources/manager.ts';
@@ -57,6 +58,18 @@ try {
   } catch (cause) {
     shell.showError('HGC_FONT could not be read; Hercules will draw in the engine\'s font', cause);
   }
+
+  // And its dither table, which is 128 bytes inside the interpreter's own data
+  // file. Optional for the same reason and with a smaller consequence: absent,
+  // the table LSL1's copy of AGIDATA.OVL holds is used, which is the same
+  // table for this game and possibly not for another.
+  let herculesDither: HgcDither | undefined;
+  try {
+    const bytes = await source.read('AGIDATA.OVL');
+    if (bytes) herculesDither = decodeHgcDither(bytes);
+  } catch (cause) {
+    shell.showError('AGIDATA.OVL could not be read; Hercules will use the bundled dither table', cause);
+  }
   const vocabulary = Vocabulary.parse(wordBytes);
   const summary = summariseGame(resources, objects, vocabulary);
 
@@ -93,7 +106,7 @@ try {
 
   // The renderer is built after the settings are read, so the first frame is
   // drawn on the adapter the player chose rather than on EGA and then swapped.
-  const renderer = new Renderer(settings.graphics, { herculesFont });
+  const renderer = new Renderer(settings.graphics, { herculesFont, herculesDither });
 
   const controls = new Controls(shell.settingsTools, {
     settings,

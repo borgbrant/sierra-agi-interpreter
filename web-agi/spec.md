@@ -24,7 +24,7 @@ game data    bundled with the app at build time
 v1 scope     playable core; no sound, no save/restore   (M0-M6, shipped)
 v2 scope     sound (M7) and save/restore (M8), both shipped
 v3 scope     the sound chip switch (M9), the display seam (M10), what the
-             scripts are told (M11), CGA (M12) and Hercules (M13), all shipped
+             scripts are told (M11), CGA (M12) and Hercules (M13, M15), shipped
 v4 scope     the shell the player sees (M14), shipped
 code sharing npm workspaces, web-agi imports agi-extract
 ```
@@ -598,8 +598,10 @@ Hercules   two colours at 720x348, an 18x12 cell, and a screen with no room
            at the bottom for a command line
 ```
 
-The dither costs nothing, which is why one set of resources could serve four
-adapters. An AGI pixel is twice as wide as it is tall, so EGA spends its 320
+CGA's dither costs nothing, which is why one set of resources could serve four
+adapters. Hercules dithers all sixteen of its colours over an 8x8 cell, and its
+table is the interpreter's own — see *What the screenshots settled, and what
+they could not* below. An AGI pixel is twice as wide as it is tall, so EGA spends its 320
 pixels *duplicating* the picture's 160; CGA spends the same two on colour
 instead. What it cannot do is reach sixteen: two colours from four is ten
 blends, so six of the sixteen share an appearance with another. The mapping is
@@ -670,10 +672,12 @@ happens to compose in now. Nothing above the seam asks which driver is running;
 the one fact that travels the other way is the reserved monitor variable, and
 that belongs to the scripts rather than to the renderer.
 
-Neither the CGA palette nor the Hercules dither can be read out of the original
-driver, because the bundled game deliberately ships only its resource files. They
-are derived instead, and checked the way the opcode table was: by rendering the
-game's own pictures and looking at the result. M12 is where that mattered — two
+The CGA palette cannot be read out of the original driver, because the bundled
+game deliberately ships only its resource files. It is derived instead, and
+checked the way the opcode table was: by rendering the game's own pictures and
+looking at the result. Hercules' two colours were derived the same way until
+M15, which replaced them with the interpreter's own table, read out of
+`AGIDATA.OVL` -- so of the two mappings one is judged and one is copied. M12 is where that mattered — two
 mappings that scored better on lost boundaries each hid a whole object, because
 a boundary count measures an outline's perimeter while the object is its area.
 What each mapping costs is recorded beside it and recomputed by a test, so
@@ -706,17 +710,44 @@ The game's rows 22 to 24 therefore have scene behind them. That is where it puts
 them on by clearing those rows first — which is why `clear.lines` has to
 **paint** rather than empty cells. See *The text plane* below.
 
-Two colours over a four-by-two cell is nine densities for sixteen colours, and
-six of AGI's colours crowd into two of them. So the pattern repeats over a
-**block of two AGI pixels each way** — eight pixels across by four down is 32,
-which is 33 densities — while every pixel still shows only its own colour's
-value, so nothing is blended with a neighbour. Density is luminance, pushed
-apart where two colours would share a level, so **all sixteen stay
-distinguishable**; and each colour fills to that density in one of three ways —
-an even sprinkle, hatching, or fine horizontal lines — handed out so that any
-two colours at neighbouring levels fill differently. That last part is what the
-photographs are for: they show surfaces carrying a weave of their own rather
-than one weave at sixteen brightnesses.
+The dither is **the interpreter's own**, copied rather than reconstructed: 128
+bytes at offset `0x1bea` of `AGIDATA.OVL`, which is the table Sierra's
+`HGC_GRAF.OVL` indexes. Every one of AGI's sixteen colours has a pattern in it,
+over an 8x8 cell of device pixels, at ten distinct densities from 0/64 to 64/64.
+There is no threshold anywhere in it.
+
+### What the screenshots settled, and what they could not (M15)
+
+Two tables were built before anyone opened that file, and both were careful and
+wrong. M13 derived densities from luminance and handed out three weaves by rule.
+M15 then measured densities off the captures in `screenshots-from-original/` and
+concluded that thirteen of the sixteen colours were solid — which is what a
+capture says if you threshold its pixels. Half of the real table's patterns
+alternate on a one-pixel pitch, and a capture smooths those into a flat
+half-tone before it is ever saved, so light grey's checkerboard reads as solid
+amber and cyan's alternating rows as solid black.
+
+What the captures *did* settle is the geometry, and one fact nothing here
+predicted: they are scaled screen grabs rather than photographs of a tube, each
+a whole multiple of the mode's own raster, and the status bar's lit band is
+**twelve device rows** rather than fourteen — the row is a fourteen-row cell
+whose inverse background covers only the twelve rows `HGC_FONT`'s glyphs occupy.
+
+They also corroborate the table, once they are read for brightness instead of
+bits. The mean luminance of each colour's regions against the table's densities
+is a straight line, `luma = 6.1 + 137.1 x density`, at R² = 0.95 and in the
+correct order throughout — with the residual curving the way a display gamma
+curves. Even the colours with a handful of pixels land where the table says:
+green at 8/64 comes back at 22 over 34 pixels, yellow at 60/64 at 144 over nine.
+What is compared against is the screen the *room* composes, not a PICTURE
+resource, because a room draws over its picture and those pixels are not the
+colour the PICTURE holds underneath them.
+
+The cost of two colours is still real, and now it is the original's cost rather
+than this project's: ten densities for sixteen colours, so four groups collide —
+green, magenta and dark grey at 8/64; cyan, red and brown at 16/64; light blue
+with light cyan; light red with light magenta. Each pair is told apart, where it
+is told apart at all, by the shape of its weave rather than by its brightness.
 
 ### The text plane
 
@@ -768,40 +799,43 @@ is handed over. Escape abandons it, and so does backspacing away the last
 character. It carries no `]` — that marker belongs to the input *row*, and the
 box announces itself with its title.
 
-### Hercules is a simulation, and deliberately not claimed to be more
+### Hercules is a simulation, and it is now a close one
 
-Of the three modes it is the least faithful, and every reason is a file this
-repository does not have. `HGC_GRAF.OVL`, `HGC_OBJS.OVL` and `HGC_FONT` are
-*interpreter* files, and the bundling decision above ships only the game's
-resources. So the mode is derived from arithmetic, a photograph and judgement,
-and these are the places that shows:
+It used to be the least faithful of the three modes, and the reason was that
+every file behind it belonged to the interpreter rather than to the game.
+`HGC_FONT` and `AGIDATA.OVL` are copied now when a copy of the game has them —
+optional, like every interpreter file, and read when they are there. So the
+letterforms are the original's and so is the dither table; what is left is
+smaller than it was:
 
 ```text
-the letter shapes         the engine's own 8x8 CGA and EGA font stretched into
-                          a 16x14 cell, not HGC_FONT's twelve-row glyphs -- and
-                          it reads as exactly that, which makes this the most
-                          visible of the four
-which weave each          every colour has one, as the photographs show, but
-surface carries           the three families and who gets which are derived
-                          rather than read out of HGC_GRAF.OVL
-how sprites are drawn     dithered like the picture, where the original had a
-                          separate overlay for them
+how sprites are drawn     through the picture's own table, where the original
+                          had HGC_OBJS.OVL to do it. Nothing here has read that
+                          overlay, and the captures cannot settle it: the
+                          hatched objects in them turned out to be brown in the
+                          room's composed screen, which the picture table
+                          already explains
+the status bar's band      its lit background is twelve device rows of the
+                          fourteen-row cell, measured off the captures while
+                          calibrating them; this engine fills the whole cell,
+                          so its status row is two rows taller than the
+                          original's
 AGI's 25 rows on 29       the picture covers 28 of them, so the game's own
                           rows 22-24 sit on scene and the rest is unreachable
                           by any text row; nothing decides whether the original
                           agreed
+without the two files     the engine's own 8x8 font in a 16x14 cell, and the
+                          dither table LSL1's copy holds. Both are what a game
+                          that shipped without them gets, and the font is the
+                          more visible of the two by far
 ```
 
-Each names what would close it: a font file, the graphics overlay, the object
-overlay, and a fact that may not be recorded anywhere. **The mode can be
+Each names what would close it: the object overlay, a line in the text path, a
+fact that may not be recorded anywhere, and nothing at all. **The mode can be
 improved further**, and none of it needs the engine rearranged — a better table
 is a better table behind the same seam. [plan.md](plan.md) records what each
-attempt was and why it was replaced.
-
-None of the four makes the game unplayable, and the guarantee that matters
-holds: all sixteen colours stay distinguishable, so nothing in any picture
-disappears into anything else. What is missing is period detail, and it is
-missing because the files that hold it are not here.
+attempt was and why it was replaced, including the two tables that were guessed
+before anyone opened `AGIDATA.OVL`.
 
 ## The sound chip (M9)
 
@@ -1006,7 +1040,7 @@ only the final blit needs a canvas.
 
 ## Milestones
 
-Each milestone ends with something observable, not just code. M0-M14 are done.
+Each milestone ends with something observable, not just code. M0-M15 are done.
 The numbering is the one [plan.md](plan.md)
 works to, and that document records what each one turned out to need --
 including where it contradicted what was written here first.
@@ -1072,20 +1106,31 @@ M13 Hercules
     720x348, two colours, an 18x12 cell, and the command line in a box.
     Ends with: the canvas follows the driver, all sixteen colours stay
     distinguishable as greys, and the game is legible on it. HGC_FONT is not
-    bundled, so the shapes are the IBM font's.
+    bundled, so the shapes are the IBM font's. The dither it derived to keep
+    those sixteen apart is what M15 replaced with the interpreter's.
 
 M14 The shell the player sees
     The page around the engine: the player's surface separated from the
     developer's, and no shell key shadowing one the game has bound.
     Ends with: someone who has never opened the repository can play, save
     and change the display without seeing a cycle count.
+
+M15 The dither the original shipped
+    The Hercules table stops being guessed at. Two attempts to derive and
+    then to measure it came first; the answer was 128 bytes of AGIDATA.OVL
+    all along, indexed by HGC_GRAF.OVL, and the captures are the check
+    rather than the source.
+    Ends with: every one of the sixteen colours dithered as the interpreter
+    dithered it, the table read from the bundled file and pinned to it by a
+    test, and the captures' brightness a straight line in its densities at
+    R2 = 0.95.
 ```
 
 ```text
 M0  complete    M4  complete    M8  complete     M12 complete
 M1  complete    M5  complete    M9  complete     M13 complete
                                                  M14 complete
-M2  complete    M6  complete    M10 complete
+M2  complete    M6  complete    M10 complete     M15 complete
 M3  complete    M7  complete    M11 complete
 ```
 

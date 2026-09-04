@@ -32,9 +32,11 @@ test('the manifest lists every file the engine reads', () => {
 });
 
 test('the manifest lists nothing the engine does not read', () => {
-  // The DOS executables and the CGA/Hercules overlays are deliberately not
-  // copied; HGC_FONT is listed because the Hercules driver uses it when present.
-  const allowed = /^(LOGDIR|PICDIR|VIEWDIR|SNDDIR|OBJECT|WORDS\.TOK|HGC_FONT|VOL\.\d+)$/;
+  // The DOS executables and the graphics overlays are deliberately not copied.
+  // Two interpreter files are, because the Hercules driver reads them when they
+  // are there: HGC_FONT for its letterforms, and AGIDATA.OVL for the 128 bytes
+  // at 0x1bea that are its dither table.
+  const allowed = /^(LOGDIR|PICDIR|VIEWDIR|SNDDIR|OBJECT|WORDS\.TOK|HGC_FONT|AGIDATA\.OVL|VOL\.\d+)$/;
   for (const name of names) assert.match(name, allowed);
 });
 

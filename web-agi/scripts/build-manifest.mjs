@@ -31,11 +31,16 @@ const DATA_FILES = ['OBJECT', 'WORDS.TOK'];
  * optional -- a missing one costs a mode some fidelity, never the ability to
  * play -- which is the opposite of the rule for the files above.
  *
- * `HGC_FONT` is the Hercules driver's own 8x12 font, 3072 bytes of it. The
- * engine draws its own CGA and EGA font when it is absent, and that reads as
- * exactly the wrong font, so it is worth copying wherever it exists.
+ * `HGC_FONT` is the Hercules driver's own font, 3072 bytes of it. The engine
+ * draws its own CGA and EGA font when it is absent, and that reads as exactly
+ * the wrong font, so it is worth copying wherever it exists.
+ *
+ * `AGIDATA.OVL` is interpreter data, and 128 bytes of it at offset 0x1bea are
+ * the Hercules dither table that `HGC_GRAF.OVL` indexes -- the one thing about
+ * that mode this project spent two milestones guessing at. Copied for those
+ * bytes; nothing else in the file is read.
  */
-const INTERPRETER_FILES = ['HGC_FONT'];
+const INTERPRETER_FILES = ['HGC_FONT', 'AGIDATA.OVL'];
 
 /** Volume files are numbered, so they are discovered rather than listed. */
 const VOLUME = /^VOL\.\d+$/;

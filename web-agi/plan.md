@@ -3,7 +3,7 @@
 Companion to [spec.md](spec.md). The spec says *what* to build; this says in what
 order, in which files, and how each step is proven to work.
 
-> **M0-M14 are done and shipped.** The
+> **M0-M15 are done and shipped.** The
 > milestones are kept as they were written, for the reasoning behind the
 > sequencing and for the format measurements in the next section. They are not a
 > description of the code as built: several modules ended up named or split
@@ -27,6 +27,7 @@ M11 What the scripts see      complete
 M12 CGA                       complete
 M13 Hercules                  complete
 M14 The shell the player sees complete
+M15 The dither the original shipped  complete
 ```
 
 ## Grounding: what was verified before planning
@@ -1468,6 +1469,11 @@ the game's own layout does.
 
 ### The dither, in three attempts
 
+> M15 replaced this with the interpreter's own table, 128 bytes of
+> `AGIDATA.OVL`. The three attempts below are kept for what they cost to find
+> out -- and because the fourth was not a better derivation either, it was
+> opening the file.
+
 Four pixels wide by two tall is eight pixels, and two colours give **nine**
 densities for sixteen colours -- worse than the count suggests, because six of
 AGI's colours sit between luminance 51 and 104 and crowd onto two of the nine.
@@ -1527,6 +1533,10 @@ was white until the photographs arrived, which is one row gone from the list of
 things this mode does not get right.
 
 ### What M12's lesson turned into
+
+> And what M15 took back out: the original's table reaches ten levels, not
+> sixteen, and four of them are shared by two or three colours. The rule
+> survives for CGA, where it was learned.
 
 M12 ended with a rule: a colour identical to its background is an object that
 has vanished, and that is worse than a colour merely being wrong. Two colours is
@@ -1795,6 +1805,206 @@ Four tests in `test/shell.test.ts` hold that rule: F7/F8/F9 are not shell
 shortcuts, the developer shortcuts require the modifier pair, a game-owned key
 is refused, and the three unclaimed shortcuts map to the three debug actions.
 The whole suite is at 372 tests.
+
+---
+
+## M15 — The dither the original shipped — complete
+
+M13 shipped a pattern table it derived from luminance. This milestone was meant
+to replace it with one measured off the captures in `screenshots-from-original/`.
+It did that, twice, and both answers were wrong. The table was 128 bytes of
+`AGIDATA.OVL` the whole time.
+
+```text
+src/render/hgcdither.ts            the table, where it lives, and how
+                                   HGC_GRAF.OVL indexes it
+src/render/drivers/hercules.ts     draws through it; takes another one
+src/render/drivers/index.ts        one more optional interpreter file
+src/main.ts                        reads AGIDATA.OVL beside HGC_FONT
+scripts/build-manifest.mjs         copies it when a copy of the game has it
+scripts/rectify-screenshot.mjs     a capture becomes the mode's own grid
+scripts/check-hgc-dither.mjs       dumps the table and checks it by brightness
+test/helpers/hgc-reference.ts      what the captures say, recorded
+test/hercules.test.ts              the table pinned to the file, and to them
+```
+
+### The two wrong answers
+
+Worth recording in full, because each looked like the careful thing to do at the
+time and the second was shipped.
+
+**The first** compared the captures against the PICTURE resources. A room draws
+over its picture -- `add.to.pic` plants objects, scripts overdraw -- so those
+pixels are not the colour the PICTURE holds underneath them, and what a room
+adds is furniture and shading, which is exactly where the interesting colours
+are. Brown had 92 device pixels of evidence that way, all in thin bands where
+bleed dominates, and came back solid black. Two more mistakes compounded it: a
+trim step that dropped whatever a fit could not explain and then refitted, which
+reinforces whatever the first pass found; and a period chosen on a pooled figure,
+which is dominated by whatever covers the most screen. The conclusion was that
+**the original had no dither at all** -- one bit per colour, explaining 99.47% of
+held-out device pixels against 99.53% for an 8x4 table.
+
+**The second** fixed the ground truth: compose the room with the engine, then
+attribute. Brown's evidence went from 92 pixels to 2656 and its 45 degree
+diagonal appeared, crisp and position-locked. That was a real finding, and the
+table built on it was still wrong -- thirteen colours solid, brown dithered, dark
+grey guessed -- because it was still built by **thresholding** the captures.
+
+That is the mistake worth naming. Half of the real table's patterns alternate on
+a one-pixel pitch, and a capture smooths those into a flat half-tone long before
+anything thresholds it. Light grey is `55 aa 55 aa`, a checkerboard; its regions
+read as a uniform grey of about 90 out of 255, and Otsu's threshold puts all of
+it on the lit side. Cyan is `aa 00 aa 00`; its regions read as about 38, and the
+same threshold puts all of it on the dark side. Brown survived only because its
+lit pixels are four apart rather than adjacent.
+
+A threshold is the wrong instrument for measuring a dither, and nothing about
+the measurement's internal consistency could have said so. What said so was
+being asked to look in the original files.
+
+### The table, and how its layout was read
+
+`agi-extract/data` has the interpreter beside the game: `HGC_GRAF.OVL` is 1536
+bytes of 8086, and its picture blit is short enough to read by hand. It takes
+two pixels at a time:
+
+```text
+lodsw                      ax = two pixels of the visual screen
+and  ax, 0f0fh             a colour in each byte
+cmp  al, ah                the same colour?
+shl  al, 1  (x3)           al = colour * 8
+mov  bx, dx                dx = (row and 3) * 2
+add  bl, al                bx = colour * 8 + (row and 3) * 2
+mov  al, ss:[bx+1beah]     the byte for this device row
+stosb
+mov  al, ss:[bx+1bebh]     and the byte for the row below
+mov  es:[di+50h], al       50h = 80 bytes = one 640-pixel row
+```
+
+Every number in the layout falls out of that: eight bytes per colour, four row
+phases of two bytes, and a byte spanning two AGI pixels of four device pixels
+each -- so a colour's eight bytes are the eight device rows of an 8x8 cell. The
+branch for two *different* colours confirms the horizontal halves, keeping
+`and al,0f0h` for the left pixel and `and ah,0fh` for the right.
+
+And `1beah` is a file offset. Searching every file in the directory for 128
+bytes that start with eight zeros and end with eight `ff`s finds exactly one
+place: `AGIDATA.OVL` at `0x1bea`.
+
+```text
+ 0 black          00 00 00 00 00 00 00 00    0/64
+ 1 blue           88 00 00 00 22 00 00 00    4/64
+ 2 green          80 10 02 20 01 08 40 04    8/64
+ 3 cyan           aa 00 aa 00 aa 00 aa 00   16/64
+ 4 red            22 88 22 88 22 88 22 88   16/64
+ 5 magenta        88 00 88 00 88 00 88 00    8/64
+ 6 brown          11 22 44 88 11 22 44 88   16/64   the diagonal M15 measured
+ 7 light grey     55 aa 55 aa 55 aa 55 aa   32/64   the checkerboard it missed
+ 8 dark grey      22 00 88 00 22 00 88 00    8/64
+ 9 light blue     d7 ff 7d ff d7 ff 7d ff   56/64
+10 light green    dd 55 77 aa dd 55 77 aa   40/64
+11 light cyan     7f ef fd df fe f7 bf fb   56/64
+12 light red      aa ff aa ff aa ff aa ff   48/64
+13 light magenta  77 bb dd ee 77 bb dd ee   48/64
+14 yellow         77 ff ff ff dd ff ff ff   60/64
+15 white          ff ff ff ff ff ff ff ff   64/64
+```
+
+Brown is `11 22 44 88` -- the same 45 degree diagonal at the same density the
+second attempt measured off the captures, which is what says the layout is read
+right and not merely plausibly.
+
+### Checking it, the way the captures can be checked
+
+Not by bits. By brightness: the mean luminance of each colour's regions against
+the table's densities, over the screen the room composes, on AGI pixels whose
+four neighbours share their colour.
+
+```text
+luma = 6.1 + 137.1 x density,   R2 = 0.9494
+
+ 0 black        25284 px    0/64      0.3    predicted    6.1
+ 1 blue           937 px    4/64     10.7                14.7
+ 3 cyan          2586 px   16/64     38.6                40.4
+ 4 red           3430 px   16/64     40.2                40.4
+ 6 brown          332 px   16/64     44.2                40.4
+ 7 light grey    2270 px   32/64     80.4                74.6
+12 light red     3949 px   48/64    119.4               108.9
+ 9 light blue     687 px   56/64    136.7               126.0
+11 light cyan    4204 px   56/64    135.4               126.0
+15 white          214 px   64/64    114.7               143.2
+```
+
+Monotone throughout, with the residual bending the way a display gamma bends.
+The colours with too few pixels to enter the fit land there too: green at 8/64
+is 22.1 over 34 pixels, magenta at 8/64 is 20.4 over eight, light green at 40/64
+is 98.8 over 41, yellow at 60/64 is 143.9 over nine. Fifteen of the sixteen are
+corroborated; dark grey appears in none of the three rooms.
+
+White is the one that misses, by 28. Its 214 pixels are thin highlights with
+outlines and sprites against them, and the footprint sampled carries some of
+that. It is left in the fit rather than trimmed out of it, which is why the
+recorded R² is 0.95 and not 0.99, and a test asserts that it still misses.
+
+### Where the table lives, and why it is a file
+
+In `AGIDATA.OVL`, read at start-up like `HGC_FONT` -- and copied into
+`public/game` by the same optional-interpreter-file rule, which existed already
+for the font and needed one more entry. Absent, the driver falls back to the
+bytes LSL1's copy holds, which is what a game shipped without the overlay gets.
+A test decodes the bundled file and asserts the shipped constant equals it,
+which is the strongest test in this file: the constant is a copy, and that is
+what says so.
+
+### What the tests hold now
+
+```text
+the shipped table is the bytes in the game's own AGIDATA.OVL
+a cell is eight device rows of eight device pixels
+every colour has a pattern, and only black and white are solid
+the sixteen colours reach ten distinct densities
+brown is the 45 degree diagonal the captures show plainly
+light grey is a checkerboard, which is what a threshold cannot see
+a region of one colour comes out at the density the table asks for
+the driver draws through the table it was given
+no two colours a level apart share a weave
+the captures calibrate the way the recovery recorded
+the captures' brightness is a straight line in the table's densities
+every colour the captures reach is as bright as the table says
+and they are in the table's order, brightest to darkest
+```
+
+The last four skip when the captures are absent, which is the normal case for a
+clone. The suite went from 372 to 386.
+
+### What this is not
+
+Not `HGC_OBJS.OVL`: sprites are drawn through the picture's table, the object
+overlay has not been read, and the hatched objects that once looked like
+evidence of a separate one turned out to be brown in the room's composed screen.
+Not the status bar, whose lit band is twelve device rows of a fourteen-row cell
+in the original and fourteen here -- measured while calibrating the captures,
+left for whoever touches the text path. Not the phosphor, which was already
+amber.
+
+And not a claim that everything about this mode is now the original's. Two of
+its files are, the geometry is arithmetic, and the rest is still derived.
+
+**Done.** The dither is the interpreter's own table, read from the file the
+interpreter kept it in, pinned to that file by a test, and corroborated by three
+captures whose brightness is a straight line in its densities.
+
+### The lesson, which is about instruments
+
+Two milestones measured this table and both got a self-consistent wrong answer.
+The reason was never arithmetic: it was that a threshold cannot see a
+one-pixel dither, and every check performed downstream of that threshold agreed
+with every other. Held-out scoring, per-colour breakdowns, position-locking
+tests -- all of them were measuring what the instrument had already destroyed.
+
+What broke it was a question from outside the loop: *have you looked in the
+original files?* The answer had been sitting in `agi-extract/data` since M0.
 
 ---
 

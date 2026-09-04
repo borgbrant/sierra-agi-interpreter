@@ -10,6 +10,7 @@
  * the fourth the original shipped and has no entry here; `engine/hardware.ts`
  * says why.
  */
+import type { HgcDither } from '../hgcdither.ts';
 import type { HgcFont } from '../hgcfont.ts';
 import { CgaDriver } from './cga.ts';
 import type { DisplayDriver, DisplayMode } from './driver.ts';
@@ -24,13 +25,17 @@ export { HerculesDriver } from './hercules.ts';
 /**
  * What a driver needs beyond its mode.
  *
- * One entry so far, and it is the only thing any driver needs from outside:
- * Hercules brought its own font, and a font is a file rather than a constant.
- * Absent, it draws with the engine's own and looks like it.
+ * Two entries, and both are Hercules', because Hercules is the only mode whose
+ * driver was a pair of files rather than a routine: it brought its own font,
+ * and its dither table lives in the interpreter's data. Absent, the engine
+ * draws in its own font and uses the table LSL1's copy holds.
  */
 export interface DriverOptions {
   /** `HGC_FONT`, decoded, when the game came with it. */
   herculesFont?: HgcFont | undefined;
+
+  /** `AGIDATA.OVL`'s dither table, when the game came with it. */
+  herculesDither?: HgcDither | undefined;
 }
 
 /** Build the driver for a mode. */
@@ -43,6 +48,6 @@ export function createDriver(mode: DisplayMode, options: DriverOptions = {}): Di
       return new EgaDriver(mode);
 
     case 'hercules':
-      return new HerculesDriver(options.herculesFont);
+      return new HerculesDriver(options.herculesFont, options.herculesDither);
   }
 }

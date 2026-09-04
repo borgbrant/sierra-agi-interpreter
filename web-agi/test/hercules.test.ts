@@ -12,7 +12,11 @@
  * game.
  */
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { test } from 'node:test';
+
+import { calibrate, decodePng, luma, otsu, STATUS_ROWS } from '../scripts/rectify-screenshot.mjs';
 
 import type { SoundChip } from '../src/audio/output.ts';
 import { buildHandlers } from '../src/engine/commands/index.ts';
@@ -21,6 +25,7 @@ import { MONITOR } from '../src/engine/hardware.ts';
 import { PICTURE_ROW } from '../src/engine/layout.ts';
 import { CommandLine, NumberQuestion } from '../src/engine/interaction.ts';
 import { Machine } from '../src/engine/machine.ts';
+import { enterRoom } from '../src/engine/room.ts';
 import { buildFrame } from '../src/engine/present.ts';
 import { FLAG, VAR } from '../src/engine/state.ts';
 import { keyNamed } from '../src/input/keyboard.ts';
@@ -28,8 +33,8 @@ import { PALETTE_SIZE } from '../src/render/display.ts';
 import type { DisplayMode } from '../src/render/drivers/driver.ts';
 import { EgaDriver } from '../src/render/drivers/ega.ts';
 import {
-  DITHER_HEIGHT,
-  DITHER_WIDTH,
+  HGC_PIXEL_HEIGHT,
+  HGC_PIXEL_WIDTH,
   HERCULES_CELL,
   HERCULES_HEIGHT,
   HERCULES_PALETTE_RGB,
@@ -37,11 +42,19 @@ import {
   herculesSolid,
   herculesTextColours,
   HerculesDriver,
-  HGC_LEVELS,
-  HGC_PATTERN,
   PATTERN_HEIGHT,
   PATTERN_WIDTH,
 } from '../src/render/drivers/hercules.ts';
+import {
+  decodeHgcDither,
+  ditherDensity,
+  HGC_CELL_HEIGHT,
+  HGC_CELL_WIDTH,
+  HGC_DITHER,
+  HGC_DITHER_BYTES,
+  HGC_DITHER_OFFSET,
+  HGC_LEVELS,
+} from '../src/render/hgcdither.ts';
 import { createDriver } from '../src/render/drivers/index.ts';
 import { Frame } from '../src/render/frame.ts';
 import { PICTURE_HEIGHT, PICTURE_WIDTH, Screens } from '../src/render/screens.ts';
@@ -49,7 +62,8 @@ import { COLUMNS, ROWS } from '../src/render/text.ts';
 import { ResourceManager } from '../src/resources/manager.ts';
 import { parseObjectFile } from '../src/resources/objects.ts';
 import { Vocabulary } from '../src/resources/words.ts';
-import { DiskSource } from './helpers/disk-source.ts';
+import { DiskSource, GAME_DIR } from './helpers/disk-source.ts';
+import { BRIGHTNESS, CAPTURES, CAPTURE_DIR, ENOUGH, FIT } from './helpers/hgc-reference.ts';
 
 const source = await DiskSource.open();
 const resources = await ResourceManager.open(source);
@@ -96,7 +110,7 @@ test('the picture keeps the shape EGA draws it in, exactly', () => {
   const driver = new HerculesDriver();
   assert.equal(driver.pixelAspect, 1);
 
-  const wide = PICTURE_WIDTH * DITHER_WIDTH * driver.pixelAspect;
+  const wide = PICTURE_WIDTH * HGC_PIXEL_WIDTH * driver.pixelAspect;
   assert.equal(wide / driver.pictureHeight, (PICTURE_WIDTH * 2) / PICTURE_HEIGHT);
 });
 
@@ -106,7 +120,7 @@ test('the picture reaches the bottom of the screen, with no dead band', () => {
   // the screen and there is nothing under it.
   const driver = new HerculesDriver();
 
-  assert.equal(driver.pictureHeight, PICTURE_HEIGHT * DITHER_HEIGHT);
+  assert.equal(driver.pictureHeight, PICTURE_HEIGHT * HGC_PIXEL_HEIGHT);
   assert.equal(driver.pictureHeight, 336);
   assert.equal(HERCULES_CELL.height, 14, '336 over 24 rows');
   assert.equal(PICTURE_ROW * HERCULES_CELL.height + driver.pictureHeight, 350);
@@ -136,7 +150,7 @@ test('the character grid lines up with the picture, not with the screen', () => 
   // the picture's 640 rather than across all 720.
   const driver = new HerculesDriver();
   assert.equal(HERCULES_CELL.originX, driver.pictureLeft);
-  assert.equal(HERCULES_CELL.width * COLUMNS, PICTURE_WIDTH * DITHER_WIDTH);
+  assert.equal(HERCULES_CELL.width * COLUMNS, PICTURE_WIDTH * HGC_PIXEL_WIDTH);
 
   driver.draw(new Frame().fill(0).text('X'.repeat(COLUMNS), 0, 0, 15, 0));
 
@@ -169,7 +183,7 @@ test('the picture is 640 of 720 pixels wide, centred', () => {
   // margins either side of the scene at about this fraction, while the status
   // bar runs edge to edge.
   const driver = new HerculesDriver();
-  assert.equal(PICTURE_WIDTH * DITHER_WIDTH, 640);
+  assert.equal(PICTURE_WIDTH * HGC_PIXEL_WIDTH, 640);
   assert.equal(driver.pictureLeft, 40);
   assert.equal(driver.pictureLeft * 2 + 640, HERCULES_WIDTH);
 });
@@ -220,75 +234,145 @@ test('the glyph fills the cell, and the font supplies the letter spacing', () =>
   );
 });
 
-// --- the dither -------------------------------------------------------------
+// --- the dither, which is the interpreter's own -----------------------------
 
-/** How many pixels of a colour's pattern are lit: its level. */
-function levelOf(colour: number): number {
-  return HGC_PATTERN[colour]!.reduce(
-    (lit, row) => lit + row.toString(2).split('1').length - 1,
-    0,
-  );
-}
+/**
+ * The table is 128 bytes at offset 0x1bea of `AGIDATA.OVL`, indexed by the blit
+ * in `HGC_GRAF.OVL`. Two milestones guessed at it before anyone opened the
+ * file: M13 derived densities from luminance, M15 measured them off the
+ * captures and got eleven of the sixteen wrong, because thresholding a capture
+ * flattens a one-pixel checkerboard into a half-tone. These tests hold the
+ * table against the file, and the file against the captures' brightness.
+ */
 
-test('the patterns are four rows of eight bits, and nothing wider', () => {
-  assert.equal(HGC_PATTERN.length, PALETTE_SIZE);
-  assert.equal(HGC_LEVELS, PATTERN_WIDTH * PATTERN_HEIGHT);
+test("the shipped table is the bytes in the game's own AGIDATA.OVL", async () => {
+  // The strongest test in this file: the constant in hgcdither.ts is not a
+  // measurement or a judgement, it is a copy, and this is what says so.
+  const bytes = await source.read('AGIDATA.OVL');
+  assert.ok(bytes, 'AGIDATA.OVL is bundled');
 
-  for (const [colour, rows] of HGC_PATTERN.entries()) {
-    assert.equal(rows.length, PATTERN_HEIGHT, `colour ${colour}`);
-    for (const row of rows) {
-      assert.ok(row >= 0 && row < 1 << PATTERN_WIDTH, `colour ${colour} row ${row}`);
-    }
+  const fromFile = decodeHgcDither(bytes);
+  assert.deepEqual(fromFile.map((rows) => [...rows]), HGC_DITHER.map((rows) => [...rows]));
+
+  // And the offset is where the driver's code says, which is worth pinning
+  // because a wrong offset in a 7680-byte file still decodes to something.
+  assert.equal(HGC_DITHER_OFFSET, 0x1bea);
+  assert.equal(HGC_DITHER_BYTES, PALETTE_SIZE * HGC_CELL_HEIGHT);
+});
+
+test('a cell is eight device rows of eight device pixels', () => {
+  // Which follows from the driver's own arithmetic: colour * 8 picks the eight
+  // bytes, (row and 3) * 2 picks two of them for an AGI row's two device rows,
+  // and one byte spans two AGI pixels of four device pixels each.
+  assert.equal(HGC_CELL_WIDTH, 8);
+  assert.equal(HGC_CELL_HEIGHT, 8);
+  assert.equal(HGC_LEVELS, 64);
+  assert.equal(PATTERN_WIDTH, HGC_CELL_WIDTH);
+  assert.equal(PATTERN_HEIGHT, HGC_CELL_HEIGHT);
+
+  assert.equal(HGC_DITHER.length, PALETTE_SIZE);
+  for (const [colour, rows] of HGC_DITHER.entries()) {
+    assert.equal(rows.length, HGC_CELL_HEIGHT, `colour ${colour}`);
+    for (const row of rows) assert.ok(row >= 0 && row <= 0xff, `colour ${colour} row ${row}`);
   }
 });
 
-test('all sixteen colours get a level of their own', () => {
-  // The property that matters most on two colours: nothing in any picture can
-  // be identical to anything else, so nothing can disappear into anything else.
-  const levels = [...HGC_PATTERN.keys()].map(levelOf);
-  assert.equal(new Set(levels).size, PALETTE_SIZE);
+test('every colour has a pattern, and only black and white are solid', () => {
+  // This is what the two wrong tables both missed in their own direction. There
+  // is no threshold in the original: fourteen of the sixteen are dithered.
+  const solid = [...HGC_DITHER.keys()]
+    .filter((colour) => [0, HGC_LEVELS].includes(ditherDensity(HGC_DITHER, colour)));
+  assert.deepEqual(solid, [0, 15]);
 
-  for (const level of levels) {
-    assert.ok(level >= 0 && level <= HGC_LEVELS, `level ${level} is in range`);
-  }
+  assert.equal(ditherDensity(HGC_DITHER, 0), 0);
+  assert.equal(ditherDensity(HGC_DITHER, 15), HGC_LEVELS);
 });
 
-test('no two colours fill the same way at neighbouring levels', () => {
-  // Density carries lightness and texture carries the rest, which is what
-  // photographs of the real thing show -- surfaces with their own weave rather
-  // than one weave at sixteen brightnesses. Two colours a level or two apart
-  // are the pair that needs the texture to differ.
-  const byLevel = [...HGC_PATTERN.keys()].sort((a, b) => levelOf(a) - levelOf(b));
-
-  for (let i = 1; i < byLevel.length; i++) {
-    const [before, after] = [byLevel[i - 1]!, byLevel[i]!];
-    if (levelOf(after) - levelOf(before) > 2) continue;
-    assert.notDeepEqual(
-      HGC_PATTERN[before],
-      HGC_PATTERN[after],
-      `colours ${before} and ${after} are close in level and fill alike`,
-    );
-  }
+test('the sixteen colours reach ten distinct densities', () => {
+  // Ten levels out of a possible sixty-five, and four of them are shared:
+  // green, magenta and dark grey at 8/64; cyan, red and brown at 16/64; light
+  // blue with light cyan at 56/64; light red with light magenta at 48/64. Those
+  // are indistinguishable by brightness and told apart, where they are told
+  // apart at all, by the shape of the weave.
+  const densities = [...HGC_DITHER.keys()].map((colour) => ditherDensity(HGC_DITHER, colour));
+  assert.deepEqual(densities, [0, 4, 8, 16, 16, 8, 16, 32, 8, 56, 40, 56, 48, 48, 60, 64]);
+  assert.equal(new Set(densities).size, 10);
 });
 
-test('a brighter colour is never drawn darker', () => {
-  // Levels are luminance, pushed apart only where two colours would share one.
-  // Pushing rather than rounding is what keeps the order.
-  const LUMA = [0, 19, 100, 119, 51, 70, 101, 170, 85, 104, 185, 204, 136, 155, 236, 255];
+test('brown is the 45 degree diagonal the captures show plainly', () => {
+  // The one pattern coarse enough to survive a capture's smoothing, which is
+  // why it is the one M15 found: its lit pixels are four apart rather than
+  // adjacent. LSL1 shades with brown, so it is also the most visible.
+  assert.deepEqual([...HGC_DITHER[6]!], [0x11, 0x22, 0x44, 0x88, 0x11, 0x22, 0x44, 0x88]);
+  assert.equal(ditherDensity(HGC_DITHER, 6), 16);
 
-  for (let a = 0; a < PALETTE_SIZE; a++) {
-    for (let b = 0; b < PALETTE_SIZE; b++) {
-      if (LUMA[a]! < LUMA[b]!) {
-        assert.ok(levelOf(a) < levelOf(b), `colour ${a} is darker than ${b}`);
+  const litColumns = (row: number) =>
+    [...Array(HGC_CELL_WIDTH).keys()].filter((x) => (row >> (HGC_CELL_WIDTH - 1 - x)) & 1);
+  const rows = HGC_DITHER[6]!.map((row) => litColumns(row));
+  for (const [y, columns] of rows.entries()) {
+    assert.equal(columns.length, 2, `row ${y} lights two of eight`);
+    assert.equal(columns[1]! - columns[0]!, 4, `row ${y} spaces them evenly`);
+  }
+  assert.deepEqual(rows.map((columns) => columns[0]), [3, 2, 1, 0, 3, 2, 1, 0]);
+});
+
+test('light grey is a checkerboard, which is what a threshold cannot see', () => {
+  // The colour that misled the first measurement, kept as a test because it is
+  // the reason the captures are read for brightness rather than for bits.
+  assert.deepEqual([...HGC_DITHER[7]!], [0x55, 0xaa, 0x55, 0xaa, 0x55, 0xaa, 0x55, 0xaa]);
+  assert.equal(ditherDensity(HGC_DITHER, 7) * 2, HGC_LEVELS, 'exactly half lit');
+});
+
+test('a region of one colour comes out at the density the table asks for', () => {
+  const driver = new HerculesDriver();
+  const top = PICTURE_ROW * HERCULES_CELL.height;
+
+  for (let colour = 0; colour < PALETTE_SIZE; colour++) {
+    const screen = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(colour);
+    driver.draw(new Frame().fill(0).picture(screen, PICTURE_ROW));
+
+    let count = 0;
+    for (let y = 0; y < HGC_CELL_HEIGHT; y++) {
+      for (let x = 0; x < HGC_CELL_WIDTH; x++) {
+        count += driver.display.pixels[(top + y) * HERCULES_WIDTH + driver.pictureLeft + x]!;
       }
     }
+    assert.equal(count, ditherDensity(HGC_DITHER, colour), `colour ${colour} over one cell`);
   }
+});
+
+test('the driver draws through the table it was given', () => {
+  // The table is an interpreter file, so a driver has to be able to take
+  // another one -- and this is what stops the shipped constant from being
+  // quietly hard-wired into the blit.
+  const inverted = HGC_DITHER.map((rows) => rows.map((row) => ~row & 0xff));
+  const driver = new HerculesDriver(undefined, inverted);
+  const top = PICTURE_ROW * HERCULES_CELL.height;
+
+  const screen = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(7);
+  driver.draw(new Frame().fill(0).picture(screen, PICTURE_ROW));
+
+  const at = (x: number, y: number) =>
+    driver.display.pixels[(top + y) * HERCULES_WIDTH + driver.pictureLeft + x]!;
+  assert.equal(at(0, 0), 1, "light grey's checkerboard, inverted");
+  assert.equal(at(1, 0), 0);
+});
+
+test('no two colours a level apart share a weave', () => {
+  // What the eleven densities cost, recorded rather than asserted away: five
+  // pairs are identical in density, and this says whether they are identical
+  // outright. Two colours with the same pattern are one colour on screen.
+  const seen = new Map<string, number[]>();
+  for (const [colour, rows] of HGC_DITHER.entries()) {
+    const key = rows.join(',');
+    seen.set(key, [...(seen.get(key) ?? []), colour]);
+  }
+
+  const shared = [...seen.values()].filter((colours) => colours.length > 1);
+  assert.deepEqual(shared, [], 'all sixteen weaves are distinct');
 });
 
 test('black is never lit and white always is', () => {
-  assert.equal(levelOf(0), 0);
-  assert.equal(levelOf(15), HGC_LEVELS);
-
   const driver = new HerculesDriver();
   const black = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(0);
   driver.draw(new Frame().fill(0).picture(black, PICTURE_ROW));
@@ -306,57 +390,190 @@ test('black is never lit and white always is', () => {
   assert.equal(at(HERCULES_WIDTH - 1, top), 0);
 });
 
-test('a region of one colour comes out at the grey it asked for', () => {
-  // The threshold matrix holds each of its 64 values once, so a block of that
-  // size lights exactly as many pixels as the level -- which is what makes an
-  // ordered dither an accurate grey rather than a texture that looks about
-  // right.
-  const driver = new HerculesDriver();
-  const top = PICTURE_ROW * HERCULES_CELL.height;
+test('text takes the solid side of a dithered colour', () => {
+  // A glyph stroke is a pixel or two of its cell, so a dithered stroke is a
+  // stroke with holes in it. The split is at half the density, which puts light
+  // grey's checkerboard on the lit side and brown's diagonal on the unlit one.
+  assert.equal(herculesSolid(7), 1, "light grey's half is ink");
+  assert.equal(herculesSolid(6), 0, "brown's quarter is ground");
+  assert.equal(herculesSolid(0), 0);
+  assert.equal(herculesSolid(15), 1);
+});
 
-  for (let colour = 0; colour < PALETTE_SIZE; colour++) {
-    const screen = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(colour);
-    driver.draw(new Frame().fill(0).picture(screen, PICTURE_ROW));
+// --- against the captures themselves ----------------------------------------
 
-    // One whole pattern: two AGI pixels across and two down.
-    let lit = 0;
-    for (let y = 0; y < PATTERN_HEIGHT; y++) {
-      for (let x = 0; x < PATTERN_WIDTH; x++) {
-        lit += driver.display.pixels[(top + y) * HERCULES_WIDTH + driver.pictureLeft + x]!;
+/**
+ * The table above is a copy of the interpreter's; this is what the original's
+ * own screen says about it.
+ *
+ * Skipped when `screenshots-from-original/` is absent, which is the normal case
+ * for a fresh clone: the captures are large and not this project's to
+ * redistribute.
+ *
+ * What is measured is **brightness**, not bits. Half of the table's patterns
+ * alternate on a one-pixel pitch and a capture smooths those into a flat
+ * half-tone, so thresholding one reports light grey's checkerboard as solid
+ * amber and cyan's alternating rows as solid black. The mean luminance of a
+ * colour's regions survives, and the check is that it is a straight line in the
+ * table's densities.
+ */
+const captureDir = resolve(GAME_DIR, '..', '..', CAPTURE_DIR);
+const haveCaptures = existsSync(captureDir);
+
+/** AGI pixels whose four neighbours share their colour. */
+function interiors(colours: ArrayLike<number>): Uint8Array {
+  const keep = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT);
+  for (let y = 1; y < PICTURE_HEIGHT - 1; y++) {
+    for (let x = 1; x < PICTURE_WIDTH - 1; x++) {
+      const at = y * PICTURE_WIDTH + x;
+      const colour = colours[at]! & 0x0f;
+      keep[at] = colour === (colours[at - 1]! & 0x0f) && colour === (colours[at + 1]! & 0x0f)
+        && colour === (colours[at - PICTURE_WIDTH]! & 0x0f)
+        && colour === (colours[at + PICTURE_WIDTH]! & 0x0f) ? 1 : 0;
+    }
+  }
+  return keep;
+}
+
+/** The screen a room composes: picture plus whatever the room drew over it. */
+function composeRoom(room: number, cycles: number): ArrayLike<number> {
+  const { machine, cycle } = bootWithCycle('hercules', 'speaker', 40);
+  try {
+    enterRoom(machine, room);
+  } catch {
+    // enterRoom unwinds the cycle it interrupts; that is how rooms change.
+  }
+  for (let i = 0; i < cycles; i++) if (!cycle.runOnce()) break;
+
+  const picture = buildFrame(machine).layers.find((layer) => layer.kind === 'picture');
+  assert.ok(picture && picture.kind === 'picture', `room ${room} composed a picture`);
+  return picture.screen;
+}
+
+/** Every colour's mean luminance in the captures, pooled. */
+function measureBrightness(): { pixels: number[]; luma: number[] } {
+  const sum = new Float64Array(PALETTE_SIZE);
+  const count = new Float64Array(PALETTE_SIZE);
+
+  for (const capture of CAPTURES) {
+    const image = decodePng(readFileSync(resolve(captureDir, capture.file)));
+    const values = luma(image);
+    const screen = composeRoom(capture.room, capture.cycles);
+    const keep = interiors(screen);
+    const { originX, originY, scale } = capture.geometry;
+
+    for (let ay = 0; ay < PICTURE_HEIGHT; ay++) {
+      const top = originY + (STATUS_ROWS + ay * HGC_PIXEL_HEIGHT) * scale;
+      for (let ax = 0; ax < PICTURE_WIDTH; ax++) {
+        if (!keep[ay * PICTURE_WIDTH + ax]) continue;
+        const left = originX + ax * HGC_PIXEL_WIDTH * scale;
+
+        // The inner part of the footprint, so a pixel beside a lit neighbour is
+        // not counted as brighter than it is.
+        let total = 0;
+        let n = 0;
+        for (let py = Math.ceil(top + 1); py < top + HGC_PIXEL_HEIGHT * scale - 1; py++) {
+          if (py < 0 || py >= image.height) continue;
+          for (let px = Math.ceil(left + 1); px < left + HGC_PIXEL_WIDTH * scale - 1; px++) {
+            if (px < 0 || px >= image.width) continue;
+            total += values[py * image.width + px]!;
+            n++;
+          }
+        }
+        if (!n) continue;
+        const colour = screen[ay * PICTURE_WIDTH + ax]! & 0x0f;
+        sum[colour] = sum[colour]! + total / n;
+        count[colour] = count[colour]! + 1;
       }
     }
-    assert.equal(lit, levelOf(colour), `colour ${colour} over one pattern`);
+  }
+
+  return {
+    pixels: [...count],
+    luma: [...sum].map((one, colour) => (count[colour] ? one / count[colour]! : Number.NaN)),
+  };
+}
+
+const measured = haveCaptures ? measureBrightness() : null;
+
+test('the captures calibrate the way the recovery recorded', { skip: !haveCaptures }, () => {
+  // That the measurement is reproducible at all: the same captures, the same
+  // rooms, the same numbers. Everything below rests on this.
+  assert.ok(measured);
+  for (const { colour, pixels, luma: recorded } of BRIGHTNESS) {
+    assert.equal(measured.pixels[colour], pixels, `colour ${colour}: pixel count`);
+    if (recorded === null) continue;
+    assert.ok(
+      Math.abs(measured.luma[colour]! - recorded) < 0.01,
+      `colour ${colour}: ${measured.luma[colour]} against the recorded ${recorded}`,
+    );
   }
 });
 
-test('no two colours look the same over a region', () => {
-  // Follows from the levels being distinct, and asserted at the pixels because
-  // that is where it matters: this is the guarantee that no object in any
-  // picture vanishes into its background.
-  const driver = new HerculesDriver();
-  const top = PICTURE_ROW * HERCULES_CELL.height;
-  const seen = new Set<string>();
+test("the captures' brightness is a straight line in the table's densities",
+  { skip: !haveCaptures }, () => {
+    // The check the captures can actually support. A table with a wrong density
+    // in it would put that colour off the line; a table with the densities in
+    // the wrong order would have no line at all.
+    assert.ok(measured);
+    const colours = [...Array(PALETTE_SIZE).keys()]
+      .filter((colour) => measured.pixels[colour]! >= ENOUGH);
+    const xs = colours.map((colour) => ditherDensity(HGC_DITHER, colour) / HGC_LEVELS);
+    const ys = colours.map((colour) => measured.luma[colour]!);
 
-  for (let colour = 0; colour < PALETTE_SIZE; colour++) {
-    const screen = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(colour);
-    driver.draw(new Frame().fill(0).picture(screen, PICTURE_ROW));
+    const meanX = xs.reduce((a, b) => a + b, 0) / xs.length;
+    const meanY = ys.reduce((a, b) => a + b, 0) / ys.length;
+    const slope = xs.reduce((sum, x, i) => sum + (x - meanX) * (ys[i]! - meanY), 0)
+      / xs.reduce((sum, x) => sum + (x - meanX) ** 2, 0);
+    const intercept = meanY - slope * meanX;
+    const residual = ys.reduce((sum, y, i) => sum + (y - (intercept + slope * xs[i]!)) ** 2, 0);
+    const spread = ys.reduce((sum, y) => sum + (y - meanY) ** 2, 0);
+    const r2 = 1 - residual / spread;
 
-    // The whole pattern as drawn, not just its count: two colours at the same
-    // level would be a defect, and two with the same weave *and* level would
-    // be an object that has disappeared.
-    const rows: string[] = [];
-    for (let y = 0; y < PATTERN_HEIGHT; y++) {
-      let row = '';
-      for (let x = 0; x < PATTERN_WIDTH; x++) {
-        row += driver.display.pixels[(top + y) * HERCULES_WIDTH + driver.pictureLeft + x]!;
+    assert.ok(Math.abs(intercept - FIT.intercept) < 0.05, `intercept ${intercept.toFixed(2)}`);
+    assert.ok(Math.abs(slope - FIT.slope) < 0.05, `slope ${slope.toFixed(2)}`);
+    assert.ok(Math.abs(r2 - FIT.r2) < 0.001, `R2 ${r2.toFixed(4)}`);
+    assert.ok(r2 > 0.94, 'and it is a line');
+  });
+
+test('every colour the captures reach is as bright as the table says',
+  { skip: !haveCaptures }, () => {
+    // Colour by colour rather than in aggregate, so that one wrong row cannot
+    // hide inside a good fit. White is the exception and is named: its 214
+    // pixels are thin highlights whose footprints carry their outlines.
+    assert.ok(measured);
+    const predicted = (colour: number) =>
+      FIT.intercept + FIT.slope * ditherDensity(HGC_DITHER, colour) / HGC_LEVELS;
+
+    for (const { colour, pixels, luma: recorded } of BRIGHTNESS) {
+      if (recorded === null || pixels < ENOUGH) continue;
+      const off = Math.abs(recorded - predicted(colour));
+      if (colour === 15) {
+        assert.ok(off > 20, 'white is the one that misses, and it still does');
+        continue;
       }
-      rows.push(row);
+      assert.ok(off < 12, `colour ${colour}: ${recorded} against a predicted ${predicted(colour).toFixed(1)}`);
     }
-    seen.add(rows.join('/'));
-  }
+  });
 
-  assert.equal(seen.size, PALETTE_SIZE);
-});
+test('and they are in the table\'s order, brightest to darkest',
+  { skip: !haveCaptures }, () => {
+    // The weaker claim, and the one that survives any gamma: whatever the curve
+    // between density and brightness, it is monotone.
+    assert.ok(measured);
+    const colours = [...Array(PALETTE_SIZE).keys()]
+      .filter((colour) => measured.pixels[colour]! >= ENOUGH && colour !== 15)
+      .sort((a, b) => ditherDensity(HGC_DITHER, a) - ditherDensity(HGC_DITHER, b));
+
+    for (let i = 1; i < colours.length; i++) {
+      const [before, after] = [colours[i - 1]!, colours[i]!];
+      if (ditherDensity(HGC_DITHER, before) === ditherDensity(HGC_DITHER, after)) continue;
+      assert.ok(
+        measured.luma[after]! > measured.luma[before]!,
+        `colour ${after} is denser than ${before} and came back brighter`,
+      );
+    }
+  });
 
 test('every picture in the game renders in two colours', async () => {
   const driver = new HerculesDriver();

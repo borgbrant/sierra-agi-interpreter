@@ -68,40 +68,30 @@
  * `engine/interaction.ts`, which is also where the reason it carries no `]`
  * is written down.
  *
- * ## The dither, and the mapping that had to be thrown away
+ * ## The dither, which is the interpreter's own
  *
- * Four pixels wide by two tall is eight pixels, and two colours give **nine**
- * densities for sixteen colours. Worse than the count suggests: six of AGI's
- * colours sit between luminance 51 and 104, so they crowd onto two of the nine.
+ * The table is 128 bytes at offset `0x1bea` of `AGIDATA.OVL`, and every one of
+ * AGI's sixteen colours has a pattern in it: ten distinct densities from 0/64
+ * to 64/64 over an 8x8 cell of device pixels. See `render/hgcdither.ts`
+ * for how `HGC_GRAF.OVL` indexes it and how the layout was read off that code.
  *
- * The first attempt was a pattern per colour -- density for lightness,
- * arrangement for the rest, which is what the photograph appears to show.
- * Rendering a swatch of all sixteen side by side is what settled it: green,
- * brown, dark grey and light blue came out as one grey, told apart only by
- * which pixel of eight was lit, and the eye does not read that at all.
+ * Two wrong tables came before it, and both are worth knowing about because
+ * both looked careful. M13 derived densities from luminance and handed out
+ * three weaves by rule. M15 measured densities off the captures instead and
+ * concluded that thirteen colours were solid -- which is what a capture says if
+ * you threshold its pixels, because a one-pixel checkerboard is smoothed into a
+ * flat half-tone before it ever reaches the PNG. Light grey then reads as solid
+ * amber and cyan as solid black. The captures do corroborate the file's table,
+ * but through brightness rather than through bits.
  *
- * So the threshold varies with *where* a pixel is as well as which colour it
- * is: an ordered dither of sixty-four thresholds over a repeating matrix. A
- * region of one colour then averages to a grey of sixty-four rather than one
- * of nine, and every one of the sixteen gets a level of its own -- which is the
- * property M12 taught this project to want. A colour *identical* to its
- * background is an object that has vanished, and that is worse than a colour
- * merely being wrong.
+ * ## Both of its files are optional, and both are read when they are there
  *
- * Every pixel still shows only its own colour's value. A dither spanning two
- * AGI pixels would have bought more levels still and given that up, and it is
- * not a trade worth making: the boundary between two colours is the thing a
- * mono renderer has least of to spare.
- *
- * ## The font is the one thing that cannot be derived
- *
- * `HGC_FONT` is not bundled. The repository ships the game's resource files,
- * and the font is an interpreter file -- so the shapes the original drew are
- * not available at any price, and there is no measurement that recovers them.
- * What this draws is the engine's own 8x8 IBM font in Hercules' 18x12 cell:
- * scaled to sixteen pixels wide, leaving two of letter spacing, and
- * top-aligned in the twelve rows. The letter spacing is a real feature of the
- * screenshot; the shapes are the IBM font's rather than Hercules'.
+ * `HGC_FONT` and the dither table in `AGIDATA.OVL` belong to the interpreter
+ * rather than to the game, so a copy of LSL1 need not include them and the
+ * build copies them only when it finds them. Absent, the font falls back to
+ * the engine's own 8x8 IBM font stretched into the 16x14 cell -- which reads as
+ * exactly what it is -- and the table falls back to the bytes LSL1's own copy
+ * holds. Present, both are the original's.
  */
 import { Display } from '../display.ts';
 import type { Frame } from '../frame.ts';
@@ -110,6 +100,15 @@ import { TRANSPARENT, type Cel } from '../sprite.ts';
 import { clearRows, drawText, drawWindow, type CellMetrics } from '../text.ts';
 import { glyph } from '../font.ts';
 import { HGC_GLYPH_WIDTH, type HgcFont } from '../hgcfont.ts';
+import {
+  ditherDensity,
+  ditherLit,
+  HGC_CELL_HEIGHT,
+  HGC_CELL_WIDTH,
+  HGC_DITHER,
+  HGC_LEVELS,
+  type HgcDither,
+} from '../hgcdither.ts';
 import { PICTURE_ROW } from '../../engine/layout.ts';
 import type { DisplayDriver, DisplayMode } from './driver.ts';
 
@@ -118,8 +117,8 @@ export const HERCULES_WIDTH = 720;
 export const HERCULES_HEIGHT = 348;
 
 /** What one AGI pixel becomes: four across, two down. */
-export const DITHER_WIDTH = 4;
-export const DITHER_HEIGHT = 2;
+export const HGC_PIXEL_WIDTH = 4;
+export const HGC_PIXEL_HEIGHT = 2;
 
 /**
  * Unlit, and amber.
@@ -144,7 +143,7 @@ export const HERCULES_PALETTE_RGB = new Uint8Array([
  * screen's. So the 40 columns are laid across the picture's 640 rather than
  * across all 720, which makes the cell 16 wide.
  */
-export const PICTURE_LEFT = (HERCULES_WIDTH - PICTURE_WIDTH * DITHER_WIDTH) / 2;
+export const PICTURE_LEFT = (HERCULES_WIDTH - PICTURE_WIDTH * HGC_PIXEL_WIDTH) / 2;
 
 /**
  * Hercules' character cell: 16 wide by 14 tall, holding a 16 by 12 glyph.
@@ -178,8 +177,8 @@ export const PICTURE_LEFT = (HERCULES_WIDTH - PICTURE_WIDTH * DITHER_WIDTH) / 2;
  * last three -- the band sits on the screen's bottom edge rather than floating
  * a few rows above it.
  */
-export const HERCULES_CELL_WIDTH = (PICTURE_WIDTH * DITHER_WIDTH) / 40;
-export const HERCULES_CELL_HEIGHT = (PICTURE_HEIGHT * DITHER_HEIGHT) / 24;
+export const HERCULES_CELL_WIDTH = (PICTURE_WIDTH * HGC_PIXEL_WIDTH) / 40;
+export const HERCULES_CELL_HEIGHT = (PICTURE_HEIGHT * HGC_PIXEL_HEIGHT) / 24;
 
 /** The cell as drawn without `HGC_FONT`: the engine's own font, stretched. */
 export const HERCULES_FALLBACK_CELL: CellMetrics = {
@@ -205,70 +204,49 @@ export function herculesCell(font: HgcFont | undefined): CellMetrics {
 }
 
 /**
- * The dither cell: eight pixels across, four down, over two AGI pixels each way.
+ * The dither, and where it finally came from.
  *
- * Four pixels wide by two tall is what one AGI pixel becomes, and on its own
- * that is eight pixels -- nine densities for sixteen colours, with six of AGI's
- * colours crowding onto two of them. Rendering a swatch of all sixteen side by
- * side is what settled that: green, brown, dark grey and light blue came out as
- * one grey.
+ * `render/hgcdither.ts` has the whole story: the table is 128 bytes at offset
+ * `0x1bea` of `AGIDATA.OVL`, indexed by the blit in `HGC_GRAF.OVL` as
+ * `colour * 8 + (row and 3) * 2`, and every one of AGI's sixteen colours has a
+ * pattern. Ten distinct densities from 0/64 to 64/64, and no threshold
+ * anywhere in it.
  *
- * So the pattern repeats over a *block* of two AGI pixels each way instead: 32
- * pixels, 33 densities, and every pixel still shows only its own colour's
- * value. Nothing is blended with a neighbour -- a dither that averaged across
- * two AGI pixels would have bought the levels by giving up the boundary
- * between two colours, and on a two-colour display that boundary is the thing
- * there is least of to spare.
+ * This driver had two wrong tables before that file was opened. M13 derived
+ * densities from luminance and handed out three weaves by rule. M15 measured
+ * densities off the captures and concluded thirteen colours were solid, which
+ * is what a capture says if you threshold its pixels: a one-pixel checkerboard
+ * is smoothed into a flat half-tone before it reaches the PNG, so light grey
+ * reads as solid amber and cyan as solid black. Reading the captures' *
+ * brightness* instead agrees with the file's table at R^2 = 0.95.
+ *
+ * The pattern is anchored to the picture's own origin, not the screen's, which
+ * is what the original's arithmetic does: its row phase is the AGI row and its
+ * columns start where the picture starts.
  */
-export const PATTERN_WIDTH = 8;
-export const PATTERN_HEIGHT = 4;
+export const PATTERN_WIDTH = HGC_CELL_WIDTH;
+export const PATTERN_HEIGHT = HGC_CELL_HEIGHT;
 
-/** How many pixels one pattern holds, and so how many greys there are. */
-export const HGC_LEVELS = PATTERN_WIDTH * PATTERN_HEIGHT;
-export const HGC_PATTERN: readonly (readonly number[])[] = [
-  [0b00000000, 0b00000000, 0b00000000, 0b00000000], //  0  black          luma   0   0/32  dispersed
-  [0b10000000, 0b00000010, 0b00000000, 0b00000000], //  1  blue           luma  19   2/32  diagonal
-  [0b11111111, 0b00000000, 0b11101010, 0b00000000], //  2  green          luma 100  13/32  horizontal
-  [0b11111111, 0b00000000, 0b11111111, 0b00000000], //  3  cyan           luma 119  16/32  horizontal
-  [0b11101110, 0b00000000, 0b00000000, 0b00000000], //  4  red            luma  51   6/32  horizontal
-  [0b10101010, 0b01000000, 0b10101010, 0b00000000], //  5  magenta        luma  70   9/32  dispersed
-  [0b10101010, 0b01010101, 0b10101010, 0b00010100], //  6  brown          luma 101  14/32  dispersed
-  [0b11111111, 0b11101010, 0b11111111, 0b00000000], //  7  light grey     luma 170  21/32  horizontal
-  [0b11100000, 0b10000011, 0b00001110, 0b00110000], //  8  dark grey      luma  85  11/32  diagonal
-  [0b11110000, 0b11000011, 0b00001111, 0b00111000], //  9  light blue     luma 104  15/32  diagonal
-  [0b11111111, 0b01010101, 0b11111110, 0b01010101], // 10  light green    luma 185  23/32  dispersed
-  [0b11111110, 0b11111011, 0b11001111, 0b00111111], // 11  light cyan     luma 204  26/32  diagonal
-  [0b11101010, 0b01010101, 0b10101010, 0b01010101], // 12  light red      luma 136  17/32  dispersed
-  [0b11111000, 0b11100011, 0b10001111, 0b00111100], // 13  light magenta  luma 155  19/32  diagonal
-  [0b11111111, 0b11111111, 0b11111111, 0b11101110], // 14  yellow         luma 236  30/32  horizontal
-  [0b11111111, 0b11111111, 0b11111111, 0b11111111], // 15  white          luma 255  32/32  dispersed
-];
-
+/** How many pixels one cell holds, and so the denominator of its density. */
+export { HGC_LEVELS } from '../hgcdither.ts';
 
 /** Whether the pixel at a place is lit, for a colour. */
-function lit(colour: number, x: number, y: number): number {
-  const rows = HGC_PATTERN[colour & 0x0f]!;
-  const bits = rows[y % PATTERN_HEIGHT]!;
-  return (bits >> (PATTERN_WIDTH - 1 - (x % PATTERN_WIDTH))) & 1;
+function lit(table: HgcDither, colour: number, x: number, y: number): number {
+  return ditherLit(table, colour, x, y);
 }
 
 /**
  * Whether a colour is drawn lit or unlit where it cannot be dithered.
  *
  * Text, for the reason CGA has the same table: a glyph's stroke is a pixel or
- * two of its cell, and a dithered stroke is a stroke with holes in it. Split by
- * luminance at the midpoint, so a dark colour is ink on a light ground and a
- * light one is ink on a dark ground -- which is what the screenshot's status
- * bar and inverse input field both are.
+ * two of its cell, and a dithered stroke is a stroke with holes in it. Split at
+ * half the density, so light grey's checkerboard becomes ink and brown's
+ * diagonal becomes ground -- which is what the captures' status bar and inverse
+ * input field are.
  */
-export function herculesSolid(colour: number): number {
-  return LUMA[colour & 0x0f]! > 128 ? 1 : 0;
+export function herculesSolid(colour: number, table: HgcDither = HGC_DITHER): number {
+  return ditherDensity(table, colour) * 2 >= HGC_LEVELS ? 1 : 0;
 }
-
-/** The luminance of each of AGI's sixteen, as the pattern densities used. */
-const LUMA: readonly number[] = [
-  0, 19, 100, 119, 51, 70, 101, 170, 85, 104, 185, 204, 136, 155, 236, 255,
-];
 
 /**
  * Ink and ground in two colours, guaranteed to differ.
@@ -279,9 +257,13 @@ const LUMA: readonly number[] = [
  * `set.text.attribute(6, 0)` -- brown on black, both unlit -- in five places,
  * and this is what keeps those five lines on the screen.
  */
-export function herculesTextColours(foreground: number, background: number): [number, number] {
-  const ground = herculesSolid(background);
-  const ink = herculesSolid(foreground);
+export function herculesTextColours(
+  foreground: number,
+  background: number,
+  table: HgcDither = HGC_DITHER,
+): [number, number] {
+  const ground = herculesSolid(background, table);
+  const ink = herculesSolid(foreground, table);
   return [ink === ground ? 1 - ground : ink, ground];
 }
 
@@ -313,18 +295,31 @@ export class HerculesDriver implements DisplayDriver {
   readonly pictureLeft = PICTURE_LEFT;
 
   /** How tall the picture is in device rows. */
-  readonly pictureHeight = PICTURE_HEIGHT * DITHER_HEIGHT;
+  readonly pictureHeight = PICTURE_HEIGHT * HGC_PIXEL_HEIGHT;
 
-  /** @param font `HGC_FONT`, decoded, when the game came with it */
-  constructor(font?: HgcFont) {
+  /**
+   * The dither table, which is the interpreter's rather than this project's.
+   *
+   * Held per driver for the same reason the cell is: whether `AGIDATA.OVL` was
+   * bundled is not known until it has been read, and the renderer builds a
+   * driver when the mode changes, so the table arrives with it. Absent, the
+   * bytes LSL1's own copy holds are used.
+   *
+   * @param font   `HGC_FONT`, decoded, when the game came with it
+   * @param dither `AGIDATA.OVL`'s table, when the game came with it
+   */
+  readonly dither: HgcDither;
+
+  constructor(font?: HgcFont, dither: HgcDither = HGC_DITHER) {
     this.cell = herculesCell(font);
+    this.dither = dither;
   }
 
   draw(frame: Frame): void {
     for (const layer of frame.layers) {
       switch (layer.kind) {
         case 'fill':
-          this.display.fill(herculesSolid(layer.colour));
+          this.display.fill(herculesSolid(layer.colour, this.dither));
           break;
 
         case 'rows':
@@ -332,7 +327,7 @@ export class HerculesDriver implements DisplayDriver {
             this.display,
             layer.from,
             layer.to,
-            herculesSolid(layer.colour),
+            herculesSolid(layer.colour, this.dither),
             this.cell,
           );
           break;
@@ -342,7 +337,7 @@ export class HerculesDriver implements DisplayDriver {
           break;
 
         case 'cel':
-          this.#drawCel(layer.cel, PICTURE_ROW * this.cell.height + layer.top * DITHER_HEIGHT);
+          this.#drawCel(layer.cel, PICTURE_ROW * this.cell.height + layer.top * HGC_PIXEL_HEIGHT);
           break;
 
         case 'cells':
@@ -386,45 +381,48 @@ export class HerculesDriver implements DisplayDriver {
   }
 
   /**
-   * The picture: every AGI pixel as its four-by-two pattern.
+   * The picture: every AGI pixel as four device pixels across and two down,
+   * lit or unlit.
    *
    * Centred horizontally, because 160 pixels four times over is 640 and the
    * screen is 720. The eighty pixels that are left stay unlit, which is what
-   * the screenshot shows either side of the scene.
+   * the captures show either side of the scene. All eight pixels of an AGI
+   * pixel take the same value -- since M15 there is no pattern for the place
+   * within it to index.
    */
   #drawScreen(screen: ArrayLike<number>, top: number): void {
     for (let y = 0; y < PICTURE_HEIGHT; y++) {
-      for (let sub = 0; sub < DITHER_HEIGHT; sub++) {
-        const destRow = top + y * DITHER_HEIGHT + sub;
+      for (let sub = 0; sub < HGC_PIXEL_HEIGHT; sub++) {
+        const destRow = top + y * HGC_PIXEL_HEIGHT + sub;
         if (destRow < 0 || destRow >= this.display.height) continue;
 
         let at = destRow * this.display.width + this.pictureLeft;
         for (let x = 0; x < PICTURE_WIDTH; x++) {
           const colour = screen[y * PICTURE_WIDTH + x]!;
-          for (let n = 0; n < DITHER_WIDTH; n++, at++) {
-            this.display.pixels[at] = lit(colour, x * DITHER_WIDTH + n, destRow);
+          for (let n = 0; n < HGC_PIXEL_WIDTH; n++, at++) {
+            this.display.pixels[at] = lit(this.dither, colour, x * HGC_PIXEL_WIDTH + n, destRow);
           }
         }
       }
     }
   }
 
-  /** An item's close-up, dithered the same way and centred. */
+  /** An item's close-up, through the same patterns and centred. */
   #drawCel(cel: Cel, top: number): void {
-    const left = Math.floor((this.display.width - cel.width * DITHER_WIDTH) / 2);
+    const left = Math.floor((this.display.width - cel.width * HGC_PIXEL_WIDTH) / 2);
 
     for (let y = 0; y < cel.height; y++) {
-      for (let sub = 0; sub < DITHER_HEIGHT; sub++) {
-        const destRow = top + y * DITHER_HEIGHT + sub;
+      for (let sub = 0; sub < HGC_PIXEL_HEIGHT; sub++) {
+        const destRow = top + y * HGC_PIXEL_HEIGHT + sub;
         if (destRow < 0 || destRow >= this.display.height) continue;
 
         for (let x = 0; x < cel.width; x++) {
           const colour = cel.pixels[y * cel.width + x]!;
           if (colour === TRANSPARENT) continue;
 
-          let at = destRow * this.display.width + left + x * DITHER_WIDTH;
-          for (let n = 0; n < DITHER_WIDTH; n++, at++) {
-            this.display.pixels[at] = lit(colour, x * DITHER_WIDTH + n, destRow);
+          let at = destRow * this.display.width + left + x * HGC_PIXEL_WIDTH;
+          for (let n = 0; n < HGC_PIXEL_WIDTH; n++, at++) {
+            this.display.pixels[at] = lit(this.dither, colour, x * HGC_PIXEL_WIDTH + n, destRow);
           }
         }
       }
