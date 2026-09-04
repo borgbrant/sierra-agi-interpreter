@@ -789,27 +789,34 @@ test('on a colour display the command line is still a row', () => {
   );
 });
 
-test('toggle.monitor moves the command line, and moves it back', () => {
-  // The game offers Ctrl-R on a CGA screen. Telling the scripts the display is
-  // mono is what turns the command line into a box, so the engine's own
-  // furniture follows the same fact the scripts read -- which is why this is
-  // keyed on the monitor variable and not on which driver is running.
-  const { machine } = typing('cga');
+test('the box belongs to the screen, not to what the scripts were told', () => {
+  // M13 keyed the box on the monitor variable, on the reasoning that Hercules
+  // was the only monochrome display there was. M16 gave CGA a monochrome mode
+  // of its own -- 640x200, all twenty-five rows -- and the original drew its
+  // command line on a row there. So the box is keyed on the screen's geometry
+  // instead: Hercules' picture covers the grid's rows 1 to 24 and has no row
+  // left, whatever the scripts have been told.
+  const mono = typing('cga');
+  mono.machine.toggleMonitor();
+  assert.equal(mono.machine.state.getVar(VAR.MONITOR_TYPE), MONITOR.MONO);
+  mono.machine.handleKey(keyNamed('t'));
+  assert.equal(waitingOn(mono.machine), null, 'a CGA told it is mono still has its row');
 
+  const { machine } = typing('hercules');
   machine.handleKey(keyNamed('t'));
-  assert.equal(waitingOn(machine), null, 'a colour display types on its row');
+  assert.ok(waitingOn(machine) instanceof CommandLine, 'and Hercules has none');
 
-  machine.toggleMonitor();
-  assert.equal(machine.state.getVar(VAR.MONITOR_TYPE), MONITOR.MONO);
-  machine.handleKey(keyNamed('t'));
-  assert.ok(waitingOn(machine) instanceof CommandLine, 'told it is mono, it opens a box');
-
+  // And toggling it on Hercules changes nothing, in either direction: the
+  // command's own answer is mono or the chosen display, and on Hercules those
+  // are the same, so the variable does not move and neither does the box.
   machine.dismissPending();
   machine.toggleMonitor();
   machine.handleKey(keyNamed('t'));
-  assert.equal(waitingOn(machine), null, 'and back');
+  assert.ok(
+    waitingOn(machine) instanceof CommandLine,
+    'its picture still covers those rows',
+  );
 });
-
 // --- and it leaves the mode that is known to be right alone -----------------
 
 test('Hercules is the driver for the mode, and EGA is untouched', async () => {

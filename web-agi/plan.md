@@ -1,9 +1,9 @@
 # Implementation plan: web-agi
 
-Companion to [spec.md](spec.md). The spec says *what* to build; this says in what
+Companion to [spec.md](spec.md). The spec says _what_ to build; this says in what
 order, in which files, and how each step is proven to work.
 
-> **M0-M15 are done and shipped.** The
+> **M0-M16 are done and shipped.** The
 > milestones are kept as they were written, for the reasoning behind the
 > sequencing and for the format measurements in the next section. They are not a
 > description of the code as built: several modules ended up named or split
@@ -12,22 +12,23 @@ order, in which files, and how each step is proven to work.
 > disagree, the spec is the one to trust.
 
 ```text
-M0  Workspace foundation      complete
-M1  Resource layer            complete
-M2  Static rendering          complete
-M3  Reading LOGIC             complete
-M4  The machine runs          complete
-M5  Ego moves                 complete
-M6  Playable                  complete
-M7  Sound                     complete
-M8  Save and restore          complete
-M9  The sound chip switch     complete
-M10 The display driver seam   complete
-M11 What the scripts see      complete
-M12 CGA                       complete
-M13 Hercules                  complete
-M14 The shell the player sees complete
-M15 The dither the original shipped  complete
+M0  Workspace foundation                complete
+M1  Resource layer                      complete
+M2  Static rendering                    complete
+M3  Reading LOGIC                       complete
+M4  The machine runs                    complete
+M5  Ego moves                           complete
+M6  Playable                            complete
+M7  Sound                               complete
+M8  Save and restore                    complete
+M9  The sound chip switch               complete
+M10 The display driver seam             complete
+M11 What the scripts see                complete
+M12 CGA                                 complete
+M13 Hercules                            complete
+M14 The shell the player sees           complete
+M15 The dither the original shipped     complete
+M16 CGA, as the original drew it        complete
 ```
 
 ## Grounding: what was verified before planning
@@ -100,7 +101,7 @@ the one to trust.
 ## Sequencing principle
 
 Every milestone ends in something visible on screen, and each one is built so the
-*next* one has a way to see what it is doing. Concretely: the disassembler
+_next_ one has a way to see what it is doing. Concretely: the disassembler
 (M3) exists before the interpreter (M4) so a misbehaving script can be read, and
 the priority-screen overlay (M2) exists before movement (M5) so blocking bugs are
 visible rather than inferred.
@@ -126,7 +127,7 @@ web-agi/src/main.ts           mounts the shell, prints "ready"
 Two changes land in `agi-extract` here, both small and both keeping its 131 tests
 green:
 
-- `view.js`: drop `Buffer` so the VIEW decoder runs in a browser. *As built:* the
+- `view.js`: drop `Buffer` so the VIEW decoder runs in a browser. _As built:_ the
   replacement is a hand-rolled latin1 decode, not `TextDecoder('latin1')` — that
   label means windows-1252 and remaps 0x80-0x9F, which corrupts a description.
 - `package.json`: confirm the `./pic`, `./view`, `./directory`, `./volume` and
@@ -188,7 +189,7 @@ src/shell/canvas.ts           canvas element, resize, letterbox, no smoothing
 src/shell/debug.ts            overlay: toggle to the priority screen
 ```
 
-*As built:* `picture.ts` was not needed as a separate module — wrapping
+_As built:_ `picture.ts` was not needed as a separate module — wrapping
 `decodePicture` is four lines, so `Screens.fromPicture` in `screens.ts` does it.
 `render/renderer.ts` and `engine/present.ts` were added to keep frame
 composition out of both the engine and the DOM.
@@ -250,7 +251,7 @@ src/engine/cycle.ts           fixed-timestep loop
 src/engine/room.ts            the new.room sequence
 ```
 
-*As built:* `interpreter.ts` is `engine/machine.ts`, and waiting is a generator
+_As built:_ `interpreter.ts` is `engine/machine.ts`, and waiting is a generator
 rather than a re-entrant dispatch loop — `engine/interaction.ts` holds the things
 a script can wait on. The command groups settled into five rather than seven:
 `core.ts` (arithmetic, flags, control), `graphics.ts`, `objects.ts`, `text.ts`
@@ -313,7 +314,7 @@ src/input/prompt.ts           the input line editor
 src/input/parser.ts           text -> word numbers, using words.ts from M1
 ```
 
-*As built:* as listed. `engine/menu.ts` also carries `KeyBindings`, the
+_As built:_ as listed. `engine/menu.ts` also carries `KeyBindings`, the
 script-bound shortcuts the game's own menus advertise, which the plan had not
 anticipated needing a home.
 
@@ -334,7 +335,7 @@ commands, `said` tests fire, inventory opens, menus work.
 
 The first milestone with a v1 non-goal in it. Nothing about it changes the
 engine's control flow, because M4 already made every sound command set the flag
-scripts wait on; what changes is *when* the flag is set.
+scripts wait on; what changes is _when_ the flag is set.
 
 ### Grounding: SOUND measured against the bundled game
 
@@ -383,7 +384,7 @@ src/audio/player.ts           schedule a parsed sound; stop; report completion
 src/engine/commands/core.ts   sound / stop.sound / load.sound become real
 ```
 
-*As built:* a third module, `src/audio/output.ts`, holds the `SoundOutput`
+_As built:_ a third module, `src/audio/output.ts`, holds the `SoundOutput`
 interface and the WebAudio implementation, leaving `player.ts` with only what
 the engine knows: which sound is running and who is waiting for it. That split
 is what lets every rule below be tested headlessly against a recording output,
@@ -391,7 +392,7 @@ with WebAudio itself the only part that needs a browser. `SILENT_OUTPUT` in the
 same file is what the engine runs against before a gesture has happened.
 
 `sound.ts` is a decoder and belongs with the other format readers, next to
-`words.ts` and `objects.ts`: it is about the *format*, so it is written the way
+`words.ts` and `objects.ts`: it is about the _format_, so it is written the way
 the spec says such things are written — as something that could move into a
 shared core package later.
 
@@ -420,11 +421,11 @@ Then the decoder, then the player:
    not depend on cycles arriving on time, and the two clocks drift.
 4. **The commands.** `sound(n, flag)` starts playback and remembers the flag;
    the flag is set when the last note ends. `stop.sound` stops playback and must
-   *also* release whatever was waiting, or a script that stops its own sound and
+   _also_ release whatever was waiting, or a script that stops its own sound and
    then waits for it hangs — the one deadlock this milestone can introduce that
    M4's no-op could not.
 
-*As built:* the autoplay policy turned out to be the whole of the milestone's
+_As built:_ the autoplay policy turned out to be the whole of the milestone's
 difficulty, and the plan saw only its first half. Creating the context on a
 gesture is not enough, because the game starts its 58-second theme on cycle 1:
 by the time a player presses anything the theme has been running silently. So
@@ -438,10 +439,10 @@ that **the game starts with its sound off**: it runs immediately, the player
 switches sound on when they want it, and that switch is itself the gesture that
 lets audio exist. What they then hear is the theme from where it has got to,
 through the same hand-over. Off rather than merely silent, because the status
-line shows the game's own sound flag and a game that says *Sound:on* while
+line shows the game's own sound flag and a game that says _Sound:on_ while
 playing nothing is worse than one that says what it is doing.
 
-Audio is scheduled on the audio clock as planned, but *the flag* is
+Audio is scheduled on the audio clock as planned, but _the flag_ is
 timed off the engine's own elapsed milliseconds, in `SoundPlayer.tick`, called
 from `Cycle.advance` before anything else. Two reasons, both found while
 building it: the flag has to arrive on the same schedule when there is no audio
@@ -457,7 +458,7 @@ Two things the plan did not anticipate, both read out of the game rather than
 guessed:
 
 - **The volume variable is live.** Logic 0 contains `if (lessn(23, 15) &&
-  controller(39)) increment(23)` and a matching `decrement`, so the game's own
+controller(39)) increment(23)` and a matching `decrement`, so the game's own
   volume keys move `VAR.SOUND_VOLUME` and the game itself supplies the 0-15
   range. It is honoured rather than treated as decoration — and, because
   nothing in the game ever sets it a first time, `Cycle.start` has to initialise
@@ -534,7 +535,7 @@ src/engine/savegame.ts      the save and restore dialogs, as Interactions
 src/engine/commands/items.ts  save.game / restore.game stop being stubs
 ```
 
-*As built:* as listed, with one substitution. The store is `localStorage`, not
+_As built:_ as listed, with one substitution. The store is `localStorage`, not
 IndexedDB, and the reason is shape rather than size: `localStorage` is
 synchronous and so is the cycle. A script calls `save.game` mid-cycle and wants
 an answer; against an asynchronous store every dialog becomes a state machine
@@ -591,7 +592,7 @@ window, a scripted walk and a room change.
 **Done.** 21 tests in `test/save.test.ts`, and the whole suite at 290. Three of
 them carry the milestone, and they fail for different reasons: the round trip
 (save, play on, restore, replay, same screen) catches state the snapshot never
-captured; a second round trip into a *barely started* engine catches what only
+captured; a second round trip into a _barely started_ engine catches what only
 worked because the running game already had it, which is the case a player
 actually meets after a reload; and comparing a fresh capture against the
 restored one catches state that is captured and then not put back. Each was
@@ -618,7 +619,7 @@ its computer type   1, which binds the digit keys 1-0 at logic 51:307 to the
 ```
 
 So a graphics mode whose entire observable effect is a keyboard mapping -- and a
-keyboard mapping that belongs to the *computer* the game runs on rather than to
+keyboard mapping that belongs to the _computer_ the game runs on rather than to
 the monitor it is drawn on. A select offering four modes of which one can never
 look different from another misdescribes what the engine can do, so the choice
 is three modes that mean three things.
@@ -627,7 +628,7 @@ What that costs is one real behaviour, and it is recorded in
 `engine/hardware.ts` rather than lost: a PCjr's chiclet keyboard had no function
 keys, the game knew it, and it bound the number row instead. There is a test
 that asserts no machine the shell can describe reaches that branch -- so the day
-a *computer* choice is added, that test is what fails and points at it.
+a _computer_ choice is added, that test is what fails and points at it.
 
 A smaller consequence, worth having: `computerTypeFor` now takes only the sound
 chip. The computer type was inferred from the pair of choices while a PCjr
@@ -680,7 +681,7 @@ attenuations on channel 0   0-13 and 15
 Three things follow, and they are the whole shape of the milestone:
 
 - **Nothing in the game branches on it.** Var 22 is read in no condition in any
-  of the 46 scripts, so this changes what is *heard* and nothing else. That is
+  of the 46 scripts, so this changes what is _heard_ and nothing else. That is
   what makes it a milestone of its own rather than half of the graphics one,
   where the game branches in twenty-seven places.
 - **A beeper is one voice, not a quieter four.** The PC speaker plays tone
@@ -701,9 +702,9 @@ src/main.ts             the choice reaches the player, and is remembered
 src/engine/cycle.ts     the reserved variable follows the choice
 ```
 
-*As built:* as listed, plus two moves the plan implies without saying. `SoundChip`
+_As built:_ as listed, plus two moves the plan implies without saying. `SoundChip`
 left the shell for `audio/output.ts`, because a type is best kept where it is
-*used* rather than where it is first offered; and remembering the choice became
+_used_ rather than where it is first offered; and remembering the choice became
 `shell/settings.ts` rather than another module under `storage/`, because a
 setting is about the machine the game is played on while a save is about the
 game. That difference has a rule attached: a save that cannot be written stops
@@ -720,7 +721,7 @@ The risky part first, as everywhere: not the one-voice scheduling, which is a
 filter over a loop that already exists, but **switching chips while a sound is
 playing**. M7 left the machinery for it -- `play(sound, fromMs)` exists because
 a context can arrive mid-theme -- and the rule it has to keep is the one volume
-already keeps: *timing does not change*. A sound switched from four voices to
+already keeps: _timing does not change_. A sound switched from four voices to
 one must still end at the same moment, and the script waiting on it must be
 released at the same moment, or a menu setting quietly changes the game's pacing.
 
@@ -733,7 +734,7 @@ released at the same moment, or a menu setting quietly changes the game's pacing
 3. **The reserved variable.** `VAR.SOUND_GENERATOR` follows the choice, even
    though this game never reads it, because the next one might -- and because an
    engine that says "PC speaker" while playing four voices is the state we are
-   in today. *Open:* which value means PCjr. The engine writes 1 for the
+   in today. _Open:_ which value means PCjr. The engine writes 1 for the
    speaker; the table gives 3 for Tandy, and that needs confirming against the
    interpreter rather than assumed, since nothing in this game forces an answer.
 4. **Remembering the choice.** In the browser's storage beside the saves, so it
@@ -743,7 +744,7 @@ released at the same moment, or a menu setting quietly changes the game's pacing
 ### The default, which is a decision rather than a detail
 
 Today the engine plays four voices while telling the game it is a PC speaker.
-The two have to be made to agree, and agreeing *downwards* would take away
+The two have to be made to agree, and agreeing _downwards_ would take away
 half the notes of a game most people remember with them. So the default is the
 PCjr, and the speaker is the choice a player makes on purpose -- recorded here
 because it is the point where fidelity and what people want part company, and a
@@ -756,7 +757,7 @@ tests assert the channel count in each mode against the recording output that
 M7's tests already use.
 
 **Done.** 12 tests, and the whole suite at 302. The one that matters is the one
-about *not* changing: a sound switched from four voices to one is checked to
+about _not_ changing: a sound switched from four voices to one is checked to
 release its waiting script neither a moment early nor a moment late, which is
 the same rule the volume keeps and the only way a hardware choice could have
 altered the game's pacing without anyone noticing.
@@ -766,7 +767,7 @@ give a running sound to an audio context that arrived late; a chip change is the
 same move -- re-issue what is playing at the offset it has reached -- so both go
 through one private method, and the timing rule is enforced in one place.
 
-*Still open:* which value the sound-generator variable takes for a PCjr. The
+_Still open:_ which value the sound-generator variable takes for a PCjr. The
 engine writes 3, from the interpreter's table for a Tandy. Nothing in the
 bundled game reads the variable at all, so nothing here can confirm it and
 nothing here depends on it.
@@ -797,7 +798,7 @@ drawing differs too, not only the palette.
 
 ### The seam
 
-Each mode is its own **display driver**: a layer the engine draws *through*
+Each mode is its own **display driver**: a layer the engine draws _through_
 rather than one it knows about, which is how the original was built and swapped
 at startup. What crosses downwards is not pixels but what the engine has -- the
 two 160x168 screens, the grid of character cells with their colours, and any
@@ -818,7 +819,7 @@ The work is in finding the seam, because today there is none. Everything that
 draws -- the picture, the sprites, the text layer, the windows, the interactions
 -- writes into a single 320x200 buffer of palette indices in
 `render/display.ts`, by way of `engine/present.ts`. That buffer is not "the
-display"; it is *the EGA driver's* display.
+display"; it is _the EGA driver's_ display.
 
 ### Files
 
@@ -864,7 +865,7 @@ business rather than the renderer's -- which is M11.
 
 **Done when:** every pixel the game draws goes through one EGA driver, the
 canvas takes its size from it, and the golden tests are untouched. That last
-clause is the milestone: this is a change that is *supposed* to be invisible,
+clause is the milestone: this is a change that is _supposed_ to be invisible,
 and the tests are what say it was.
 
 ### What the seam turned out to be
@@ -906,7 +907,7 @@ Two smaller findings, both about assumptions that had gone unnamed:
 EGA asks to be presented with **square pixels**, which looks wrong until it is
 said out loud: the correction has already happened. The picture is 160 across
 and the buffer is 320, so the doubling is what makes an AGI pixel square. A
-driver whose buffer is *not* already corrected reports something else, and the
+driver whose buffer is _not_ already corrected reports something else, and the
 canvas acts on it -- which is the property that keeps this milestone invisible
 while leaving 720x348 room to be right.
 
@@ -918,7 +919,7 @@ the one that handed a question a framebuffer, which is the signature that no
 longer exists.
 
 The tests added are about the shape of the seam rather than about pixels, since
-pixels are what is *supposed* to be unchanged:
+pixels are what is _supposed_ to be unchanged:
 
 ```text
 a real frame is described in cells and screens, never in pixels
@@ -970,7 +971,7 @@ What was wrong:
   had assumed. So making it real fixes nothing in this game and removes an
   assumption instead, which is a smaller thing than the plan thought and worth
   doing anyway.
-- **The mono branches do not move the engine's rows.** They move the *game's*:
+- **The mono branches do not move the engine's rows.** They move the _game's_:
   it drops a line it would otherwise print, or prints it on another row, or
   narrows an input field from 38 characters to 28. The engine's layout is not
   involved, and could not be -- the scripts address rows directly.
@@ -1014,11 +1015,11 @@ below.
 3. ~~**PCjr, which is EGA with a different answer.** The cheapest mode there is
    -- the PCjr's 160x200 mode uses the palette AGI already targets, so its
    pixels are EGA's. It is worth building first anyway, because it proves
-   *switching drivers* with no rendering work to hide a mistake behind.~~
+   _switching drivers_ with no rendering work to hide a mistake behind.~~
    Dropped, and the mode with it. Its second sentence was already paid for by
    M10, which proved driver switching against a stub at Hercules' size; and its
    first turned out to be the whole of the mode rather than its cheapness. See
-   *The mode that came out*.
+   _The mode that came out_.
 4. **Remembering the choice**, with M9's.
 
 **Done when:** choosing PCjr changes the help page the game offers; telling the
@@ -1098,7 +1099,7 @@ untouched.
 ### The dither is free, which is why AGI could offer this mode at all
 
 An AGI pixel is twice as wide as it is tall, so the EGA driver spends its
-320-pixel width *duplicating* each of the picture's 160 pixels. CGA spends the
+320-pixel width _duplicating_ each of the picture's 160 pixels. CGA spends the
 same two pixels on colour instead: a pair drawn from four colours, blending at
 the size the canvas presents it. Nothing is given up to make room for it, and no
 picture had to be redrawn -- which is the answer to why a 1987 game could ship
@@ -1124,6 +1125,11 @@ the 10 pairs that never touch all involve    dark grey is the only colour
 
 ### Which palette, and a result that contradicts the obvious guess
 
+> M16 replaces the whole of this: `CGA_GRAF.OVL` selects the palette itself and
+> translates through a table in `AGIDATA.OVL`. The scoring below was careful and
+> it was answering a question the original had already answered in a file this
+> repository has had since M0.
+
 CGA's 320x200 mode offers two palettes in two intensities. All four were scored
 against the colours this game actually draws, weighted by how many pixels of
 each it draws:
@@ -1139,7 +1145,7 @@ palette                             colour error   boundaries lost
 **Palette 1 at low intensity wins on both counts at once**, and the bright
 cyan-and-magenta everybody remembers from Sierra CGA screenshots comes second by
 a wide margin. The reason is worth keeping: with every non-black entry bright,
-dark red lands nearer to *black* than to anything else, so colour 4 collapses
+dark red lands nearer to _black_ than to anything else, so colour 4 collapses
 into colour 0 -- the second most common boundary in the game, 29,800 pixels of
 it. Low intensity has dark and mid tones among its blends, and half of AGI's
 palette is its dark half.
@@ -1166,7 +1172,7 @@ That is the finding to carry into M13. **A boundary count undervalues the
 outline of a large region.** An object's edge is its perimeter -- a few hundred
 pixels -- while the object is its area, so a metric summing edges will trade
 away the one boundary that makes a shape a shape. The 489 pixels where yellow
-meets light cyan *are* the outline of the notepad, and a search that saw them as
+meets light cyan _are_ the outline of the notepad, and a search that saw them as
 489 pixels threw the notepad away to save 2,000 elsewhere.
 
 So the table is nearest match with one entry moved, and the move was decided by
@@ -1177,13 +1183,13 @@ black-to-white range further off, and hands back the pennant.
 
 Black and white turned out not to need pinning: nearest match already puts them
 on the darkest and brightest blends. That is worth knowing because the
-fewest-collisions search *did* need it -- left free it put white on a mid
+fewest-collisions search _did_ need it -- left free it put white on a mid
 cyan-grey and light grey on the bright blend, inverting the two.
 
 ### The one loss that cannot be recovered
 
 Three quarters of everything CGA gives up is a single group: light grey, yellow
-and white on the brightest blend, 8,328 boundary pixels. Colour 7 is *exactly*
+and white on the brightest blend, 8,328 boundary pixels. Colour 7 is _exactly_
 170,170,170, which is the brightest blend there is, and white has nowhere
 brighter to go. No rearrangement helps -- a palette whose brightest colour is
 light grey cannot show a highlight on light grey.
@@ -1220,7 +1226,7 @@ Nothing in the engine, and that is the expected result for a milestone that
 adds a driver rather than changing one. The 323 tests before it were untouched
 and stayed green, EGA included.
 
-The fourteen added do not try to say the mapping is *right*, because no test
+The fourteen added do not try to say the mapping is _right_, because no test
 can. They say what it is and what it costs, and they recompute the cost from
 the game's own pictures rather than trusting a comment:
 
@@ -1267,7 +1273,7 @@ src/shell/canvas.ts              a 720-wide buffer can reach a whole multiple
 ```
 
 No new font, and that is the one thing this milestone could not do. `HGC_FONT`
-is 3072 bytes -- 256 glyphs of twelve rows -- and it is an *interpreter* file,
+is 3072 bytes -- 256 glyphs of twelve rows -- and it is an _interpreter_ file,
 so it is not in a repository that ships only the game's resources. The shapes
 the original drew are not recoverable at any price. What this draws is the
 engine's own 8x8 IBM font in Hercules' cell.
@@ -1276,7 +1282,7 @@ engine's own 8x8 IBM font in Hercules' cell.
 
 The plan said nobody here could compare the result against a Hercules card. That
 turned out to be wrong: a screenshot of the real thing arrived, and it moved two
-things from *derived and judged by eye* to *derived and checked*.
+things from _derived and judged by eye_ to _derived and checked_.
 
 The first is the geometry, which is arithmetic once two facts are in hand --
 Hercules is 720x348, and `HGC_FONT`'s 3072 bytes over 256 glyphs is a twelve-row
@@ -1342,7 +1348,7 @@ is worth knowing before reaching for a leading field again.
 ### The bottom band, and two defects it uncovered
 
 The game's bottom band -- "Please answer a, b, c, or d:", the speed indicator,
-its captions -- came out printed *on the scene* rather than on a black bar. The
+its captions -- came out printed _on the scene_ rather than on a black bar. The
 first diagnosis was that the geometry must be wrong: the picture could not
 really reach those rows, or the band would have nowhere clear to sit. So the
 picture was moved to AGI's rows 1 to 21, which fixed the symptom and left a dead
@@ -1363,7 +1369,7 @@ The two calls on **row 21** are the ones that decide it. Row 21 is the picture's
 last row on every adapter, and both calls are the colour branch of a mono test:
 on a colour screen the game clears row 21 and prints its caption there, on a
 mono screen it uses row 24 instead. Clearing row 21 only makes sense if the
-clear *paints* -- the game wants a black bar across the bottom of the scene to
+clear _paints_ -- the game wants a black bar across the bottom of the scene to
 put its caption on.
 
 And AGI paints. It has one framebuffer and no text plane; `clear.lines` writes
@@ -1419,10 +1425,10 @@ picture**, so nothing it meant to keep is thrown away.
 That is the third time in this milestone that having one framebuffer, where this
 engine has a picture and a plane over it, turned out to be the thing that
 mattered. It is worth stating as a rule for whatever comes next: every command
-that writes to AGI's screen writes to *one* buffer, and every place this engine
+that writes to AGI's screen writes to _one_ buffer, and every place this engine
 keeps two is a place where the difference can hide.
 
-That box is the *interpreter's* and not the game's, and this was checked rather
+That box is the _interpreter's_ and not the game's, and this was checked rather
 than assumed -- no message in any of the 46 LOGIC resources contains the words
 "enter command", so no script could be printing it.
 
@@ -1446,7 +1452,7 @@ useful part -- centring in the grid rather than in the screen is what makes the
 two agree, because the grid is shorter than a mono screen.
 
 And the field carries no `]`. That marker is what AGI keeps in string 0 and what
-this game writes there, and it belongs to the input *row*; the box announces
+this game writes there, and it belongs to the input _row_; the box announces
 itself with a title instead, and all three photographs show the field holding
 nothing but what was typed.
 
@@ -1570,7 +1576,7 @@ the whole multiple is still 4.
 Nothing in the engine. The 338 before it stayed green, EGA and CGA included.
 
 The eighteen added split in a way the earlier graphics milestones could not:
-several of them assert *arithmetic that a photograph corroborates*, which is a
+several of them assert _arithmetic that a photograph corroborates_, which is a
 kind of test M12 had no access to.
 
 ```text
@@ -1592,24 +1598,24 @@ toggle.monitor moves the command line, and moves it back
 Hercules is the driver for the mode, and EGA is untouched
 ```
 
-Two of those carry the dither's weight. *A region of one colour comes out at the
-grey it asked for* works because each of the three fill orders is a permutation
+Two of those carry the dither's weight. _A region of one colour comes out at the
+grey it asked for_ works because each of the three fill orders is a permutation
 of 0 to 31, so a level means a count of lit pixels and nothing else -- a dither
-either is an accurate grey or it is not. And *no two colours look the same over a
-region* compares the whole 32-pixel pattern as drawn rather than only its count,
+either is an accurate grey or it is not. And _no two colours look the same over a
+region_ compares the whole 32-pixel pattern as drawn rather than only its count,
 because two colours at the same level would be a defect while two with the same
-level *and* weave would be an object that has disappeared.
+level _and_ weave would be an object that has disappeared.
 
 Three more hold the input box to what the photographs show, and one holds the
-colour displays to what they did before: *on a colour display a question is one
-line, prompt and answer together*. The box is a mono answer to a mono problem
+colour displays to what they did before: _on a colour display a question is one
+line, prompt and answer together_. The box is a mono answer to a mono problem
 and must not leak into the mode that is known to be right.
 
 ### This is a simulation, and here is where it is not the original
 
 Hercules is the least faithful of the three modes, and every one of the reasons
 is a file this repository does not have. The graphics overlay, the object
-overlay and the font are *interpreter* files; the repository ships only the
+overlay and the font are _interpreter_ files; the repository ships only the
 game's resources, deliberately (see the spec's note on bundling). So the mode is
 derived from arithmetic, a photograph and judgement, and these are the places
 that shows. Each is closeable, and the last column says with what.
@@ -1667,7 +1673,7 @@ in a twelve-row cell is Hercules'.
 
 ### The risk these four carry
 
-Not correctness that a test can catch, but *plausibility*. Nobody here can
+Not correctness that a test can catch, but _plausibility_. Nobody here can
 compare the result against a Hercules card, and a CGA palette that is merely
 wrong-looking passes every test a test can be. Two mitigations, and they are the
 ones the project has used since M2: render the game's own pictures in each mode
@@ -1724,12 +1730,12 @@ F8 / F9                             the state dump and the disassembler, always
 **F7 is the defect worth naming.** `shell/debug.ts` listens on the window for
 F7 and toggles the priority screen; `input/keyboard.ts` routes the same key to
 the game, which has bound it to Restore. Neither stops the other, so one press
-does both: the picture switches to the priority screen *and* the restore dialog
+does both: the picture switches to the priority screen _and_ the restore dialog
 opens over it. The log advertises both bindings, two lines apart.
 
 That is not a milestone-sized problem on its own. It is the symptom worth
 starting from, because the cause is that the shell's keys and the game's keys
-were never separated, and the same is true of the shell's *words*.
+were never separated, and the same is true of the shell's _words_.
 
 ### The line to draw
 
@@ -1768,7 +1774,7 @@ src/main.ts             what the page says on load, and what it says twice a
    refuse to take one. That is a rule rather than a new list of keys, and it
    holds for the next game too.
 2. **The status line stops being telemetry.** One line that says what the
-   *shell* just did -- a setting changed, sound switched on, a game saved -- and
+   _shell_ just did -- a setting changed, sound switched on, a game saved -- and
    the engine's readout only while the developer surface is open.
 3. **The controls, grouped.** Settings apart from actions, and each control
    still saying what choosing it does rather than only what it is called.
@@ -1885,7 +1891,7 @@ mov  es:[di+50h], al       50h = 80 bytes = one 640-pixel row
 Every number in the layout falls out of that: eight bytes per colour, four row
 phases of two bytes, and a byte spanning two AGI pixels of four device pixels
 each -- so a colour's eight bytes are the eight device rows of an 8x8 cell. The
-branch for two *different* colours confirms the horizontal halves, keeping
+branch for two _different_ colours confirms the horizontal halves, keeping
 `and al,0f0h` for the left pixel and `and ah,0fh` for the right.
 
 And `1beah` is a file offset. Searching every file in the directory for 128
@@ -2003,8 +2009,223 @@ one-pixel dither, and every check performed downstream of that threshold agreed
 with every other. Held-out scoring, per-colour breakdowns, position-locking
 tests -- all of them were measuring what the instrument had already destroyed.
 
-What broke it was a question from outside the loop: *have you looked in the
-original files?* The answer had been sitting in `agi-extract/data` since M0.
+What broke it was a question from outside the loop: _have you looked in the
+original files?_ The answer had been sitting in `agi-extract/data` since M0.
+
+---
+
+## M16 — CGA, as the original drew it — complete
+
+M15 found the Hercules dither table in `AGIDATA.OVL` after two milestones had
+derived and then measured their way to two wrong answers. The obvious next
+question was whether CGA's mapping was in there too. It is, three times over,
+and one of the three was not expected.
+
+```text
+src/render/cgatables.ts            the three tables, and what CGA_GRAF.OVL
+                                   does with them
+src/render/drivers/cga.ts          the palette, the pairs, the fills, and the
+                                   row phase that had to go
+src/render/drivers/cgamono.ts      640x200 in two colours
+src/render/drivers/index.ts        one more optional file, and which mode has a
+                                   mono variant
+src/render/renderer.ts             setMonochrome: the game changing the card
+src/engine/present.ts              where that fact crosses the seam
+src/engine/hardware.ts             hasInputRow, which the command box now reads
+src/main.ts                        AGIDATA.OVL's CGA tables read at load,
+                                   beside the Hercules table M15 already read
+scripts/check-cga-tables.mjs       the tables dumped with the argument for how
+                                   they are read
+test/cga.test.ts                   29 tests, up from 14
+```
+
+### What is in the files
+
+`CGA_GRAF.OVL` is 1024 bytes and its jump table has seven entries: set the mode,
+blit the screen, fill, clear, a masked pixel write, and an in-place colour
+translation. Reading them took writing a small 8086 disassembler, which was
+worth it -- three of the four things this milestone turned on are invisible
+without seeing instruction boundaries.
+
+The blit packs *pairs* of pixels into each byte it stores:
+
+```text
+lodsw                two pixels of AGI's one-byte-per-pixel screen
+and  ax, 0f0fh       a nibble from each
+shl  al, 1  (x4)
+or   al, ah          one byte: the left pixel's nibble, then the right's
+stosb
+add  dx, 2000h       CGA's two interleaved banks, 80 bytes to a row
+```
+
+Eighty bytes a row is 320 pixels at four to a byte or 640 at eight, so **a
+nibble is one AGI pixel in either mode** -- two CGA pixels of two bits, or four
+of one bit. That is why one table shape serves both modes, and it is the fact
+the whole reading rests on.
+
+```text
+0x1b78   16 x 3 bytes   the fill patterns: byte 0 for two colours, 1 and 2 for
+                        four
+0x1ba8   00 22 11 33 44 66 88 55 aa 77 99 bb ee cc dd ff
+0x1bb8   00 00 cc 11 aa 22 99 dd 00 33 55 77 ee ee ff ff
+```
+
+### Which table is which mode's, and how that is known
+
+Not by preference: the flag that chooses the table chooses the video mode.
+
+```text
+flag != 0   int 10h ah=0Bh bx=0001h   background register to colour 1
+            int 10h ah=0Bh bx=0100h   palette 0     -> 320x200, four colours
+            and the blit reads 0x1bc8, a copy of 0x1bb8 made at init
+flag == 0   out 3d8h, 1ah             bit 4: high resolution
+            out 3d9h, 27h             low nibble 7: light grey
+            and the blit reads 0x1ba8 -> 640x200, two colours
+```
+
+Three checks, and `scripts/check-cga-tables.mjs` prints all of them:
+
+```text
+a permutation      0x1ba8 uses all sixteen nibble values exactly once --
+                   sixteen patterns, densities 0/4 to 4/4. Only a one-bit
+                   dither is shaped like that
+the exact hits     read as four-colour pairs, 0x1bb8 draws red as exactly red
+                   and blue as exactly blue. 0x1ba8 gets none of the sixteen
+                   right and draws red as green beside the background
+the tie            the fill table's two-colour column equals 0x1ba8 entry for
+                   entry -- 48 bytes apart in the file, with no reason to
+                   agree unless both have been read right. decodeCgaTables
+                   refuses a file where they disagree
+```
+
+### The palette M12 ranked last
+
+The original selects palette 0 at low intensity and sets the background register
+to colour 1, so the four colours are blue, green, red and brown, and **nothing
+in the game is black on a CGA**. M12 scored all four hardware palettes and put
+this one fourth of four, at 203.2M colour error against the winner's 113.2M and
+19.7% of boundaries lost against 4.3%.
+
+That is worth sitting with rather than explaining away. The metric was not
+broken; it was answering a different question. It minimised distance from an EGA
+reference, and Sierra were not doing that -- they were keeping sixteen colours
+*distinguishable* on four, where a wrong hue costs less than a shape that
+disappears. A dark-heavy palette does that better than a bright one, and blue in
+the background slot buys a fourth dark tone that black does not.
+
+### What it costs, re-measured
+
+```text
+                        M12's derived table      the original's
+boundary pixels lost    11,335  (4.1%)           30,549  (11.0%)
+collision groups        5                        3
+the expensive one       7 = 14 = 15, 8,328 px    0 = 1 = 8, 27,619 px
+appearances drawing     10 of 10 blends          12 of 16 ordered pairs,
+                                                 and all 10 blends
+appearances filling     -- (fills were solid)    15
+```
+
+Nine tenths of the original's loss is one group: black, blue and dark grey are
+all the background, and black meets blue in 27,614 places -- night skies,
+shadows, and every dark thing drawn against another dark thing. The engine now
+loses those, because the card did.
+
+### The third table, and the thing it says
+
+Fills read `0x1b78`, and in four colours they use *two* nibbles where the
+picture uses one -- so a filled region alternates two patterns across its width
+and reaches fifteen distinct appearances against the picture's twelve. Green is
+the clearest case: the picture draws it 3,0 and a fill lays 1,0 then 1,1, which
+is three quarters green.
+
+So the original's own fills and pictures disagree about what a colour looks like.
+That is not a defect to reconcile: it is the picture blit being the inner loop
+and the fill routine not, and both are shipped here as they are.
+
+### The command box moved, and this is why
+
+M13 made the command line a box whenever the *scripts* were told the display was
+monochrome, on the reasoning that Hercules was the only monochrome display and
+that keying it to the variable meant nothing had to ask which driver was
+running. M16's CGA in 640x200 is monochrome with all twenty-five rows, and the
+original drew its command line on a row there -- so the old rule would have put
+a box on a screen with a perfectly good row to use.
+
+It is keyed on the screen's geometry now, in `hasInputRow`: the picture's 168
+rows in 8-row cells cover the grid's rows 1 to 21, and in Hercules' 14-row cells
+they cover 1 to 24. That is a better rule than the one it replaces for a reason
+beyond this milestone -- it is *why* Hercules needs a box, rather than a
+correlate of it. It also changes Hercules slightly: `toggle.monitor` no longer
+moves the box, which matches the original, whose Hercules card had one mode.
+
+### The one design decision, and how it went
+
+The plan said the renderer should be *told* about mono rather than a driver
+reading game state, and that the alternative -- a flag inside the CGA driver --
+was worth trying second. The first was right and cost four lines: `present` is
+the single funnel every frame goes through and it has both objects, so it passes
+`machine.monochrome` to `renderer.setMonochrome` before rendering.
+
+Reading it there rather than pushing it from `toggle.monitor` has a property
+that was not the reason for it and is worth keeping: a restored save arrives in
+the right mode, because the monitor variable is part of the snapshot and the
+renderer catches up on the next frame.
+
+The mono driver reports `mode: 'cga'`, so nothing above the seam knows there are
+two. A fourth `DisplayMode` would have put a display in the shell's select that
+no player ever picked.
+
+### What the tests hold now
+
+```text
+the shipped tables are the bytes in the game's own AGIDATA.OVL
+a wrong AGIDATA.OVL is refused rather than half read
+the four colours are the palette the original selected
+sixteen colours reach twelve appearances, of the sixteen ordered pairs
+the fill table reaches more appearances than the picture table
+the dither is stripes, not a checkerboard
+a fill is dithered, and with the fill table rather than the picture one
+the recorded collisions are the collisions the table has
+each collision costs what it is recorded as costing
+a cell of the two-colour mode is four pixels of one bit
+the two-colour table is a permutation, so no two colours look alike
+the two-colour picture table and the fill column are the same table
+the two-colour mode draws every colour at its own density
+the two-colour mode has no row phase either
+the two-colour mode keeps a row for the command line
+two colours put ink and ground on opposite sides, always
+the two-colour mode presents at the size the four-colour one does
+only CGA has a mode to switch to when the game asks for mono
+the renderer answers a mono display by changing the card, on CGA
+mono survives a mode switch away and back
+```
+
+The suite went from 388 to 403. One existing test changed rather than being
+added to: `toggle.monitor moves the command line, and moves it back` is now
+`the box belongs to the screen, not to what the scripts were told`, and it
+asserts the opposite of what it used to on both modes.
+
+### What this is not
+
+Not `CGA_OBJS.OVL` or `IBM_OBJS.OVL`, still unread. Not the text colour: the
+overlay has no text path at all -- its six routines are a mode set, a blit, a
+fill, a clear, a pixel write and a colour translation -- so `CGA_SOLID` stays
+derived, and now that is a fact rather than an open question, because someone
+looked. Not the composite-monitor artefact colours a real CGA on a television
+produced, which no table in any file describes.
+
+And there is no photographic check for any of it. None of the seven captures in
+`screenshots-from-original/` is a CGA screen, so unlike M15 there is nothing to
+hold the result against -- which is exactly why the tables being *read* rather
+than derived carries the weight here. The reading is checked by its own
+consistency, printed by `check-cga-tables.mjs`, and by two colours coming back
+exactly right.
+
+**Done.** Both CGA modes draw through the interpreter's own tables, read from
+the bundled file and pinned to it by a test; the palette is the one the mode
+setup selects; the dither is stripes; fills use the fill table; the cost is
+re-measured and recorded; and `Ctrl-R` puts the card into 640x200 in two
+colours, as it did in 1987.
 
 ---
 
@@ -2066,7 +2287,7 @@ interpreter state kept as data rather than in closures — are what let them
 arrive as M7 and M8 rather than as a rewrite. That was the bet, and it paid:
 sound changed no control flow, and saving turned out to be one module of
 copying fields plus a second that rebuilds what the fields imply. The two
-defects M8 found were both about *order and emptiness* — a flag written after
+defects M8 found were both about _order and emptiness_ — a flag written after
 the state that replaced it, a slot released without being emptied — and neither
 is the kind of thing keeping state in closures would have made easier.
 

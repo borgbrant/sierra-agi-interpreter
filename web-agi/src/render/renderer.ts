@@ -12,6 +12,7 @@
 import { PICTURE_ROW } from '../engine/layout.ts';
 import {
   createDriver,
+  hasMonoVariant,
   type DisplayDriver,
   type DisplayMode,
   type DriverOptions,
@@ -37,6 +38,16 @@ export class Renderer {
   #options: DriverOptions;
 
   /**
+   * Whether the game has asked for a monochrome display.
+   *
+   * Kept here because it survives a mode switch: a player who moves from CGA to
+   * EGA and back while the game is in mono should come back to the mode the
+   * game asked for. `present` is what tells this, once a frame, from the
+   * monitor variable -- the only fact that crosses the seam in this direction.
+   */
+  #monochrome = false;
+
+  /**
    * @param mode    which adapter to start on
    * @param options what the drivers need from outside, which is one font
    *
@@ -45,6 +56,7 @@ export class Renderer {
    */
   constructor(mode: DisplayMode = 'ega', options: DriverOptions = {}) {
     this.#options = options;
+    this.#monochrome = options.monochrome ?? false;
     this.#driver = createDriver(mode, options);
   }
 
@@ -78,8 +90,31 @@ export class Renderer {
    */
   setMode(mode: DisplayMode): boolean {
     if (mode === this.#driver.mode) return false;
-    this.#driver = createDriver(mode, this.#options);
+    this.#driver = this.#build(mode);
     return true;
+  }
+
+  /**
+   * The game asking for mono, or asking to come back out of it.
+   *
+   * `toggle.monitor` is the command and "Graphics Mode <Ctrl-R>" the menu item
+   * the player reaches it by. On CGA the original answered by putting the card
+   * into 640x200 in two colours, so that is what this builds; on the other two
+   * modes there is nothing to switch to and the answer is only what the scripts
+   * are told.
+   *
+   * @returns whether the driver changed
+   */
+  setMonochrome(monochrome: boolean): boolean {
+    if (monochrome === this.#monochrome) return false;
+    this.#monochrome = monochrome;
+    if (!hasMonoVariant(this.#driver.mode)) return false;
+    this.#driver = this.#build(this.#driver.mode);
+    return true;
+  }
+
+  #build(mode: DisplayMode): DisplayDriver {
+    return createDriver(mode, { ...this.#options, monochrome: this.#monochrome });
   }
 
   /**

@@ -24,7 +24,7 @@ game data    bundled with the app at build time
 v1 scope     playable core; no sound, no save/restore   (M0-M6, shipped)
 v2 scope     sound (M7) and save/restore (M8), both shipped
 v3 scope     the sound chip switch (M9), the display seam (M10), what the
-             scripts are told (M11), CGA (M12) and Hercules (M13, M15), shipped
+             scripts are told (M11), CGA (M12, M16) and Hercules (M13, M15)
 v4 scope     the shell the player sees (M14), shipped
 code sharing npm workspaces, web-agi imports agi-extract
 ```
@@ -575,21 +575,28 @@ the teardown, because scheduled audio otherwise outlives the room that started
 it — and each of those paths sets the waiting script's flag, for the same reason
 `stop.sound` does.
 
-## The graphics modes (M10-M13)
+## The graphics modes (M10-M16)
 
 The original shipped four display drivers and the game still carries them:
 `EGA_GRAF.OVL`, `CGA_GRAF.OVL`, `JR_GRAF.OVL` and `HGC_GRAF.OVL`, with a
 `HGC_FONT` and a pair of `*_OBJS` overlays beside them. The engine now draws
-through a driver and the shell chooses which — **three drivers, not four**, and
+through a driver and the shell chooses which — **three modes, not four**, and
 all three draw in their own colours at their own size. This is what the other
 two mean, and why there is no third.
 
+Four *drivers*, though, because CGA has two: `CGA_GRAF.OVL` has a 320x200
+four-colour mode and a 640x200 two-colour one, and the game switches between
+them with its own menu item rather than the player choosing. See *The CGA tables,
+and the mode Ctrl-R asks for*.
+
 A mode is two things at once, and that is the whole difficulty -- and the reason
-the work is four milestones rather than one. It is an adapter's palette to draw
-with (M10 made room for it, M12 and M13 build two), and it is an answer the
-scripts get (M11, shipped). The two are worth separating because they are
+the work is six milestones rather than one. It is an adapter's palette to draw
+with (M10 made room for it, M12 and M13 built two, M15 and M16 replaced both
+with the interpreter's own tables), and it is an answer the scripts get (M11,
+shipped). The two are worth separating because they are
 checked in entirely different ways: a seam and an answer can be tested, while a
-palette can only be looked at.
+palette could only be looked at -- until it turned out both palettes were in a
+file all along.
 
 ```text
 EGA        16 colours, 160x168 doubled to 320
@@ -598,21 +605,95 @@ Hercules   two colours at 720x348, an 18x12 cell, and a screen with no room
            at the bottom for a command line
 ```
 
-CGA's dither costs nothing, which is why one set of resources could serve four
-adapters. Hercules dithers all sixteen of its colours over an 8x8 cell, and its
-table is the interpreter's own — see *What the screenshots settled, and what
-they could not* below. An AGI pixel is twice as wide as it is tall, so EGA spends its 320
+The dither costs nothing, which is why one set of resources could serve four
+adapters. An AGI pixel is twice as wide as it is tall, so EGA spends its 320
 pixels *duplicating* the picture's 160; CGA spends the same two on colour
-instead. What it cannot do is reach sixteen: two colours from four is ten
-blends, so six of the sixteen share an appearance with another. The mapping is
-CGA palette 1 at low intensity — black, cyan, magenta, light grey — chosen by
-scoring all four hardware palettes against the colours this game actually
-draws, which puts the bright cyan-and-magenta of Sierra CGA screenshots second.
-Three quarters of what is lost is one group: light grey, yellow and white, all
-on the brightest blend, because a palette whose brightest colour is light grey
-cannot show a highlight on light grey. Text is drawn solid rather than dithered
-— a glyph stroke is one or two pixels of an eight-pixel cell, and a dithered
-stroke is a stroke with holes in it.
+instead, and Hercules spends four across and two down.
+
+**Every table in both dithered modes is the interpreter's own**, read out of
+`AGIDATA.OVL`: Hercules' 8x8 patterns and CGA's three tables sit within a few
+bytes of each other in that file, and `render/hgcdither.ts` and
+`render/cgatables.ts` record how `HGC_GRAF.OVL` and `CGA_GRAF.OVL` index them.
+M13 and M12 derived their mappings first, and M15 and M16 replaced both. Text is
+drawn solid rather than dithered — a glyph stroke is one or two pixels of an
+eight-pixel cell, and a dithered stroke is a stroke with holes in it — and the
+solid table is the one thing about CGA still derived, because the overlay has no
+text path to read it from.
+
+### The CGA tables, and the mode Ctrl-R asks for (M16)
+
+`CGA_GRAF.OVL` is 1024 bytes of 8086 and it translates colours with `xlat`
+against tables in `AGIDATA.OVL`. There are **three**, and the third was not
+expected:
+
+```text
+0x1b78   16 x 3 bytes   the fill patterns, one column per mode
+0x1ba8   00 22 11 33 44 66 88 55 aa 77 99 bb ee cc dd ff
+0x1bb8   00 00 cc 11 aa 22 99 dd 00 33 55 77 ee ee ff ff
+```
+
+A nibble is one AGI pixel in either mode, which is what lets one table shape
+serve both: the driver packs two nibbles into each byte it stores, and eighty
+bytes to a row is 320 pixels at four to a byte or 640 at eight. So a nibble is
+two CGA pixels of two bits, or four of one bit.
+
+Which table belongs to which mode is settled by the mode-setting code, because
+the flag that picks the table picks the video mode too:
+
+```text
+flag != 0   int 10h ah=0Bh bx=0001h   the background register to colour 1
+            int 10h ah=0Bh bx=0100h   palette 0    -> 320x200, four colours
+flag == 0   out 3d8h, 1ah             bit 4: high resolution
+            out 3d9h, 27h             -> 640x200, two colours
+```
+
+And the tables agree. `0x1ba8` is a **permutation of all sixteen nibble
+values** — sixteen colours, sixteen distinct four-pixel patterns, densities 0/4
+to 4/4 — which is a two-colour dither and nothing else. Read as four-colour
+pairs it draws AGI's red as green beside the background, while `0x1bb8` draws it
+as *exactly* red and blue as exactly blue. Only one of the two puts a colour on
+the CGA colour that is it.
+
+**The palette is palette 0 at low intensity on a blue background**, which M12
+scored last of the four by a factor of two on colour error. That is not a broken
+metric; it is a metric answering a different question. Sierra were not
+minimising error against an EGA reference — they were keeping sixteen colours
+*distinguishable* on a screen where a wrong hue costs less than a shape that
+disappears. Nothing in the game is black on a CGA: the darkest thing on the
+screen is blue.
+
+Three consequences, each replacing something M12 decided:
+
+```text
+the pairs        the original's, and its collisions with them: black, blue and
+                 dark grey are all the background, light red is light magenta,
+                 yellow is white. 30,549 boundary pixels of the game's own
+                 pictures vanish, against M12's 11,335 -- 11% of every
+                 boundary in the game against 4%
+no row phase     CGA_GRAF.OVL has none, where HGC_GRAF.OVL masks the row with
+                 `and dx, 3`. So the dither is vertical stripes, identical on
+                 every row, where M12 drew a checkerboard on the argument that
+                 two stripes are a worse texture. The argument was sound and
+                 the card did this
+fills are their  the third table, and in four colours it fills with two
+own table        alternating patterns where the picture uses one -- fifteen
+                 distinct appearances against the picture's twelve. In two
+                 colours the two tables agree exactly, which is the check on
+                 both readings
+```
+
+The two-colour mode is not a fourth adapter. It is what the game's own CGA-only
+menu item asks for — *Graphics Mode `Ctrl-R`*, which calls `toggle.monitor` —
+and the original answered it by putting the card into 640x200. Its foreground is
+light grey rather than white, because the colour-select register is written with
+7 and not 15.
+
+That mode also moved a rule. M13 made the command line a box whenever the
+scripts were told the display was monochrome, Hercules being the only monochrome
+display there was. A CGA in 640x200 is monochrome with all twenty-five rows, and
+the original drew its command line on a row — so the box is now keyed on the
+screen's geometry instead: Hercules' picture covers the grid's rows 1 to 24 and
+has no row to offer, whatever the scripts have been told. See `hasInputRow`.
 
 `JR_GRAF.OVL` has no counterpart, and that is a decision rather than an
 omission. A PCjr differs from an EGA in three places and two of them are empty:
@@ -1040,7 +1121,7 @@ only the final blit needs a canvas.
 
 ## Milestones
 
-Each milestone ends with something observable, not just code. M0-M15 are done.
+Each milestone ends with something observable, not just code. M0-M16 are done.
 The numbering is the one [plan.md](plan.md)
 works to, and that document records what each one turned out to need --
 including where it contradicted what was written here first.
@@ -1124,6 +1205,16 @@ M15 The dither the original shipped
     dithered it, the table read from the bundled file and pinned to it by a
     test, and the captures' brightness a straight line in its densities at
     R2 = 0.95.
+
+M16 CGA, as the original drew it
+    The CGA mapping stops being derived too. `CGA_GRAF.OVL` translates with
+    three tables of its own, in the same file as Hercules': one for the
+    picture in each of its two video modes, and one for fills.
+    Ends with: CGA in the palette the original selected -- palette 0 on blue,
+    which M12's scoring ranked last -- dithering in the pairs it chose and in
+    stripes rather than a checkerboard, its costs re-measured at 11% of the
+    game's boundaries against M12's 4%, and `Ctrl-R` putting the card into
+    640x200 in two colours as it did on the original.
 ```
 
 ```text
@@ -1131,7 +1222,7 @@ M0  complete    M4  complete    M8  complete     M12 complete
 M1  complete    M5  complete    M9  complete     M13 complete
                                                  M14 complete
 M2  complete    M6  complete    M10 complete     M15 complete
-M3  complete    M7  complete    M11 complete
+M3  complete    M7  complete    M11 complete     M16 complete
 ```
 
 ## Later phases

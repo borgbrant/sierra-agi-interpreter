@@ -95,12 +95,13 @@ export function buildFrame(machine: Machine, view: ScreenView = 'visual'): Frame
   // questions put their instructions exactly there -- so the line yields to it
   // rather than covering it up.
   //
-  // A monochrome display has no row to offer: its picture reaches the bottom of
-  // the screen. There the command line is a box that opens when the player
-  // starts typing, and it is an interaction rather than a layer -- so it
-  // arrives with `machine.pending` below, and nothing is drawn here.
+  // A display whose picture reaches the bottom of the screen has no row to
+  // offer -- Hercules, where the grid's rows 1 to 24 are all picture. There the
+  // command line is a box that opens when the player starts typing, and it is
+  // an interaction rather than a layer, so it arrives with `machine.pending`
+  // below and nothing is drawn here.
   if (
-    !machine.monochrome &&
+    !machine.commandLineIsBox &&
     machine.inputAccepted &&
     machine.prompt.visible &&
     !machine.pending &&
@@ -131,5 +132,11 @@ export function buildFrame(machine: Machine, view: ScreenView = 'visual'): Frame
  * @param renderer where it is drawn
  */
 export function present(machine: Machine, renderer: Renderer): void {
+  // The one fact that crosses the seam towards the display, and the only one:
+  // the game's own "Graphics Mode <Ctrl-R>" sets the monitor variable to mono,
+  // and on a CGA the original answered that by putting the card into 640x200 in
+  // two colours. Read here rather than pushed by `toggle.monitor` so that a
+  // restored save arrives in the right mode too -- the variable is the fact.
+  renderer.setMonochrome(machine.monochrome);
   renderer.render(buildFrame(machine, renderer.view));
 }

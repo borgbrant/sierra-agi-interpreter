@@ -28,7 +28,7 @@ import { SoundPlayer } from '../audio/player.ts';
 import type { SoundChip } from '../audio/output.ts';
 import type { DisplayMode } from '../render/drivers/driver.ts';
 import { parseSound } from '../resources/sound.ts';
-import { computerTypeFor, MONITOR, monitorTypeFor } from './hardware.ts';
+import { computerTypeFor, hasInputRow, MONITOR, monitorTypeFor } from './hardware.ts';
 import { Inventory } from './inventory.ts';
 import { defaultLayout, type ScreenLayout } from './layout.ts';
 import { CommandLine, KeyPress, type Interaction, type Key } from './interaction.ts';
@@ -802,7 +802,7 @@ export class Machine {
       // box opens on the keystroke that would have gone into the row. It
       // covers the scene, so the game parks on it until the line is handed
       // over; see CommandLine.
-      if (this.monochrome) {
+      if (this.commandLineIsBox) {
         if (key.char >= 0x20 && key.char <= 0x7e) {
           this.pending = new CommandLine(
             String.fromCharCode(key.char),
@@ -922,6 +922,20 @@ export class Machine {
    */
   get monochrome(): boolean {
     return this.state.getVar(VAR.MONITOR_TYPE) === MONITOR.MONO;
+  }
+
+  /**
+   * Whether the command line is a box rather than a row.
+   *
+   * Read from the display mode rather than from the monitor variable, because
+   * it is a fact about the screen's geometry and not about what the scripts have
+   * been told: Hercules' picture covers the grid's rows 1 to 24 and has no row
+   * left to offer. M13 keyed this on the variable, when Hercules was the only
+   * monochrome display there was; M16's CGA in 640x200 is monochrome with all
+   * 25 rows, and drew its command line on a row exactly as the original did.
+   */
+  get commandLineIsBox(): boolean {
+    return !hasInputRow(this.displayMode);
   }
 
   /**

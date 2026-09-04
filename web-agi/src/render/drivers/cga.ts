@@ -15,81 +15,65 @@
  * for it, which is why this is the mode AGI could offer without redrawing a
  * single picture.
  *
- * Two colours from four is ten distinct blends, not sixteen -- (a,b) and (b,a)
- * are the same colour, whatever order they are drawn in. So **six of the
- * sixteen must share an appearance with another**, and the question this
- * milestone actually answers is which six, and what that costs.
+ * ## The table is the interpreter's, and so is the palette
  *
- * ## How the table was arrived at, and what a metric could not settle
+ * Both are read out of `AGIDATA.OVL` -- see `render/cgatables.ts` for the three
+ * tables, the code in `CGA_GRAF.OVL` that indexes them, and why each belongs to
+ * the mode it belongs to. Nothing here is derived any more except the one table
+ * the original keeps somewhere this project has not found: the solid colour
+ * text is drawn in.
  *
- * The mapping cannot be read out of the original driver: `CGA_GRAF.OVL` is not
- * bundled, because the repository ships only the game's resource files. So it
- * was derived, and measured against every picture in the game -- 43 pictures,
- * 1,155,840 pixels, and the 277,937 places where two colours meet.
- *
- * The measurement first, because it says how little slack there is:
- *
- * ```text
- * every one of the 16 colours is drawn        none is free to collide
- * 110 of the 120 colour pairs are drawn       so almost every collision
- *   adjacent somewhere in the game            costs a real boundary
- * the 10 that never touch all involve         which is the only colour with
- *   colour 8, dark grey                       any slack at all
- * ```
- *
- * The table is **nearest match, with one entry moved after looking at the
- * result** -- and the honest part of this comment is the second clause. Three
- * mappings were built and rendered:
+ * M12 derived the mapping instead, because the overlays were thought to be
+ * unavailable, and it scored all four hardware palettes against the colours
+ * this game draws. That work is worth keeping in mind for what it got right and
+ * for how it went wrong:
  *
  * ```text
- * nearest match          4.08% of boundaries lost, once light green is moved
- * least error            4.25% lost. Light green and light cyan collapse, and
- *                        the green pennant in the opening disappears into the
- *                        sky
- * fewest collisions      3.26% lost, and the worst of the three to look at:
- *   (no blend used by    yellow is forced off the bright blend and lands on
- *   more than two)       light cyan's, so the notepad the opening is *about*
- *                        vanishes into the sky
+ * palette                        colour error  boundaries lost   M12 ranked
+ * 1 low   black/cyan/magenta/grey       113.2M            4.3%      first
+ * 1 high  black/lcyan/lmagenta/white    117.4M           13.8%      second
+ * 0 high  black/lgreen/lred/yellow      129.7M           13.1%      third
+ * 0 low   black/green/red/brown         203.2M           19.7%      last
  * ```
  *
- * The second and third are what a boundary count recommends, and both hide a
- * whole object. That is the finding worth carrying into M13: **a boundary count
- * undervalues the outline of a large region.** An object's edge is its
- * perimeter, a few hundred pixels, while the object is its area; a metric
- * summing edges will happily trade away the one boundary that makes a shape a
- * shape. The 489 pixels where yellow meets light cyan are the outline of the
- * notepad.
+ * The original selects **palette 0 at low intensity** -- the one that scored
+ * last of four, by a factor of two on colour error -- and then sets the
+ * background register to colour 1, so the darkest of its four colours is blue
+ * rather than black. A metric that ranks the answer last is not a broken
+ * metric; it is a metric answering a different question. Sierra were not
+ * minimising colour error against an EGA reference. They were choosing four
+ * colours that keep sixteen *distinguishable*, on a screen where a wrong hue
+ * costs less than a shape that disappears.
  *
- * So the entry that moved is light green, from the blend it shares with light
- * cyan to its second-nearest -- which costs 3.9% of the black-to-white range,
- * and hands back the pennant. Everything else is nearest match. Black and white
- * are checked rather than chosen: nearest match already puts them on the
- * darkest and brightest blends, which is what keeps the range from inverting.
+ * ## What the mapping costs, and where it is spent
  *
- * ## Which palette, and a surprise
+ * Two colours from four is ten distinct blends, not sixteen, so some of the
+ * sixteen must share an appearance. The original's table spends that on three
+ * groups, and the first is the expensive one: **black, blue and dark grey all
+ * become the background**, which is every dark thing in the game flattening
+ * into one. `CGA_COLLISIONS` records what each group costs in boundary pixels
+ * of the game's own pictures, and `cga.test.ts` recomputes it.
  *
- * CGA's 320x200 mode offers two palettes in two intensities. All four were
- * scored against the colours this game actually draws, weighted by how many
- * pixels of each it draws, and **palette 1 at low intensity wins on both
- * counts at once** -- least colour error and fewest boundaries lost, by a wide
- * margin:
+ * ## Stripes, not a checkerboard
  *
- * ```text
- * palette                        colour error  boundaries lost
- * 1 low   black/cyan/magenta/grey       113.2M            4.3%
- * 1 high  black/lcyan/lmagenta/white    117.4M           13.8%
- * 0 high  black/lgreen/lred/yellow      129.7M           13.1%
- * 0 low   black/green/red/brown         203.2M           19.7%
- * ```
+ * M12 swapped the pair on alternate rows so that a region read as a
+ * checkerboard, on the argument that two one-pixel stripes are the same colour
+ * on average and a visibly worse texture. `CGA_GRAF.OVL` has no row phase
+ * anywhere -- `HGC_GRAF.OVL` masks the row with `and dx, 3` and this one has no
+ * such instruction -- so the original is vertical stripes, identical on every
+ * row. The argument was right and the card did the other thing, and in a
+ * simulation of a card that settles it.
  *
- * The bright cyan-and-magenta of palette 1 high is the one anybody who has seen
- * a Sierra CGA screenshot would reach for, and it is measurably the wrong
- * choice for a *dithered* renderer: with every non-black entry bright, dark red
- * lands nearer to black than to anything else, and colour 4 collapses into
- * colour 0 -- the second most common boundary in the game, 29,800 pixels of it,
- * gone. Low intensity has dark and mid tones among its blends, and half of
- * AGI's palette is its dark half.
+ * ## Fills are dithered too, from a table of their own
+ *
+ * The original's fill routine reads a third table, and in four colours it fills
+ * with *two* alternating patterns where the picture uses one. So the background
+ * behind text is a dither rather than a flat colour, and it reaches fifteen
+ * distinct appearances where the picture reaches thirteen. Text itself stays
+ * solid: a glyph stroke is one or two pixels of an eight-pixel cell, and a
+ * dithered stroke is a stroke with holes in it.
  */
+import { CGA_TABLES, colourPixels, type CgaTables } from '../cgatables.ts';
 import { Display, DISPLAY_WIDTH, DISPLAY_HEIGHT, PIXEL_ASPECT } from '../display.ts';
 import type { Frame } from '../frame.ts';
 import { PICTURE_HEIGHT, PICTURE_WIDTH } from '../screens.ts';
@@ -99,69 +83,78 @@ import { PICTURE_ROW } from '../../engine/layout.ts';
 import type { DisplayDriver, DisplayMode } from './driver.ts';
 
 /**
- * CGA palette 1, low intensity: black, cyan, magenta, light grey.
+ * The four colours the original selects: palette 0 at low intensity, on a blue
+ * background.
  *
- * The hardware's own -- in 320x200 four-colour mode, colour 0 is the border
- * register and colours 1 to 3 are the selected palette, which for palette 1 is
- * CGA's 3, 5 and 7.
+ * Read off the mode-setting code rather than chosen. `CGA_GRAF.OVL` makes two
+ * BIOS calls when it puts the card in the four-colour mode:
+ *
+ * ```text
+ * int 10h ah=0Bh bx=0001h    background/border register to colour 1
+ * int 10h ah=0Bh bx=0100h    palette 0
+ * ```
+ *
+ * In 320x200 the background register *is* colour 0 of the palette, so colour 0
+ * is CGA's blue and 1 to 3 are palette 0's green, red and brown. Nothing in the
+ * game is drawn in black on a CGA: the darkest thing on the screen is blue.
  */
 export const CGA_PALETTE_RGB = new Uint8Array([
-  0, 0, 0, // 0  black
-  0, 170, 170, // 1  cyan
-  170, 0, 170, // 2  magenta
-  170, 170, 170, // 3  light grey
+  0, 0, 170, // 0  blue      the background register, set to 1
+  0, 170, 0, // 1  green     palette 0, low intensity
+  170, 0, 0, // 2  red
+  170, 85, 0, // 3  brown
 ]);
 
 /**
- * The two CGA colours each of AGI's sixteen is drawn as.
+ * The two CGA colours each of AGI's sixteen is drawn as, left pixel first.
  *
- * Nearest match against the blend of each pair, with light green moved to its
- * second-nearest; the header says why. The comment on each line is what the
- * pair blends to, so a wrong entry is a visible diff rather than a number to
- * take on trust.
+ * The four-colour picture table of `AGIDATA.OVL`, unpacked: one nibble a
+ * colour, its high two bits the left pixel and its low two the right. The
+ * comment on each line is what the pair blends to under the palette above, so
+ * a wrong entry is a visible diff rather than a number to take on trust.
+ *
+ * Three of them are solid -- red, light green and yellow land on a single CGA
+ * colour each -- and three groups collide. The order within a pair matters to
+ * nothing but the phase of the stripe, and the original still chose one.
  */
-export const CGA_DITHER: readonly (readonly [number, number])[] = [
-  [0, 0], //  0  black          0,0,0        -> 0,0,0
-  [0, 2], //  1  blue           0,0,170      -> 85,0,85
-  [0, 1], //  2  green          0,170,0      -> 0,85,85
-  [1, 1], //  3  cyan           0,170,170    -> 0,170,170
-  [0, 2], //  4  red            170,0,0      -> 85,0,85
-  [2, 2], //  5  magenta        170,0,170    -> 170,0,170
-  [0, 3], //  6  brown          170,85,0     -> 85,85,85
-  [3, 3], //  7  light grey     170,170,170  -> 170,170,170
-  [0, 3], //  8  dark grey      85,85,85     -> 85,85,85
-  [1, 2], //  9  light blue     85,85,255    -> 85,85,170
-  // Its nearest blend is light cyan's, 1+3, and sharing it costs the opening
-  // its green pennant. This is 3.9% of the range further off and its own.
-  [1, 1], // 10  light green    85,255,85    -> 0,170,170
-  [1, 3], // 11  light cyan     85,255,255   -> 85,170,170
-  [2, 3], // 12  light red      255,85,85    -> 170,85,170
-  [2, 3], // 13  light magenta  255,85,255   -> 170,85,170
-  [3, 3], // 14  yellow         255,255,85   -> 170,170,170
-  [3, 3], // 15  white          255,255,255  -> 170,170,170
-];
+export const CGA_DITHER: readonly (readonly [number, number])[] =
+  CGA_TABLES.colour.map((nibble) => colourPixels(nibble));
+
+/**
+ * The pattern a fill uses, which is not the pattern the picture uses.
+ *
+ * Two nibbles a colour: the left AGI pixel's and the right's. The original's
+ * fill routine combines them into one byte, so a filled region alternates
+ * between two patterns across its width and reaches distinctions the picture
+ * cannot -- green fills as 1,0 then 1,1, which is three quarters green, where
+ * the picture draws it 3,0.
+ */
+export const CGA_FILL: readonly (readonly [[number, number], [number, number]])[] =
+  CGA_TABLES.fill.map(([left, right]) => [colourPixels(left), colourPixels(right)]);
 
 /**
  * Which colours end up looking the same, and what that costs.
  *
- * Kept beside the table rather than left to be rediscovered: these five groups
- * are the whole of what CGA gives up, and the counts are boundary pixels in the
- * bundled game that vanish because of them. `cga.test.ts` recomputes the list
- * from the table and the game's pictures, so the two cannot drift apart.
+ * Kept beside the table rather than left to be rediscovered, and the counts are
+ * boundary pixels in the bundled game that vanish because of them.
+ * `cga.test.ts` recomputes the list from the table and the game's pictures, so
+ * the two cannot drift apart.
  *
- * The last of the five is the one that cannot be avoided. Colour 7 is
- * *exactly* 170,170,170, which is the brightest blend there is, and white has
- * nowhere brighter to go -- so light grey, yellow and white share it, and 8,328
- * boundary pixels go with them. Three quarters of everything CGA loses is that
- * one group, and no rearrangement recovers it: a palette whose brightest colour
- * is light grey cannot show a highlight on light grey.
+ * The first group is nine tenths of the whole cost. **Black, blue and dark grey
+ * are all the background**, and black meets blue in 27,614 places -- the game's
+ * night skies, its shadows, and every dark thing drawn against another dark
+ * thing. M12's derived table lost 11,335 boundary pixels in total; the
+ * original's loses 30,549, which is 11% of every boundary in the game against
+ * M12's 4%.
+ *
+ * That is the price of fidelity here and it is not a small one. It is also not
+ * this project's to negotiate: the original flattened those three into one, and
+ * a player on a CGA in 1987 saw them flattened.
  */
 export const CGA_COLLISIONS: readonly { colours: readonly number[]; lostEdges: number }[] = [
-  { colours: [1, 4], lostEdges: 2216 }, // blue = red: no blue or red to draw either in
-  { colours: [3, 10], lostEdges: 137 }, // cyan = light green: the cheapest of the six
-  { colours: [6, 8], lostEdges: 0 }, // brown = dark grey: never once adjacent
+  { colours: [0, 1, 8], lostEdges: 27619 }, // all three are the background
   { colours: [12, 13], lostEdges: 654 }, // light red = light magenta
-  { colours: [7, 14, 15], lostEdges: 8328 }, // light grey = yellow = white
+  { colours: [14, 15], lostEdges: 2276 }, // yellow = white, both solid brown
 ];
 
 /**
@@ -173,9 +166,11 @@ export const CGA_COLLISIONS: readonly { colours: readonly number[]; lostEdges: n
  */
 export const CGA_COST = {
   /** Boundary pixels that vanish, of the 277,937 the game draws. */
-  lostEdges: 11335,
-  /** Distinct appearances the sixteen colours reach, of the ten available. */
-  appearances: 10,
+  lostEdges: 30549,
+  /** Distinct appearances the sixteen colours reach when drawn. */
+  appearances: 12,
+  /** And when filled, which uses the other table and reaches more. */
+  fillAppearances: 15,
 } as const;
 
 /**
@@ -183,43 +178,45 @@ export const CGA_COST = {
  *
  * Text, not pictures. A character cell is eight pixels wide and a glyph's
  * stroke is one or two of them, so a dithered stroke is a stroke with holes in
- * it: the letter stops being a letter. Text is drawn solid, ink and ground
- * both, and this is the table that says in what.
+ * it: the letter stops being a letter.
  *
- * One rule beyond nearest match, and the measurement is why: **only colour 0
- * may become black.** Taken as pure nearest match, red, brown and dark grey all
- * land on black -- and the bundled game sets `set.text.attribute(6, 0)`, brown
- * on black, in five places. Black ink on a black ground is not a colour
- * approximation, it is text that is not there.
+ * This is the one table in this file that is still derived, and the reason is
+ * that it is not in the overlay. `CGA_GRAF.OVL`'s six routines are a mode set,
+ * a screen blit, a fill, a clear, a masked pixel write and an in-place colour
+ * translation; text is drawn by the interpreter above it, in whatever colour it
+ * hands down. So this is nearest match among the four, weighted 0.30/0.59/0.11
+ * -- and where two colours land on the same one, `cgaTextColours` breaks the
+ * tie so that ink never sits on its own ground.
  */
 export const CGA_SOLID: readonly number[] = [
-  0, //  0  black          -> black
-  2, //  1  blue           -> magenta
-  1, //  2  green          -> cyan
-  1, //  3  cyan           -> cyan
-  2, //  4  red            -> magenta
-  2, //  5  magenta        -> magenta
-  2, //  6  brown          -> magenta
-  3, //  7  light grey     -> light grey
-  1, //  8  dark grey      -> cyan
-  1, //  9  light blue     -> cyan
-  1, // 10  light green    -> cyan
-  1, // 11  light cyan     -> cyan
-  2, // 12  light red      -> magenta
-  2, // 13  light magenta  -> magenta
-  3, // 14  yellow         -> light grey
-  3, // 15  white          -> light grey
+  0, //  0  black          -> blue, which is as dark as this palette goes
+  0, //  1  blue           -> blue, exactly
+  1, //  2  green          -> green, exactly
+  1, //  3  cyan           -> green
+  2, //  4  red            -> red, exactly
+  2, //  5  magenta        -> red
+  3, //  6  brown          -> brown, exactly
+  3, //  7  light grey     -> brown
+  3, //  8  dark grey      -> brown
+  0, //  9  light blue     -> blue
+  1, // 10  light green    -> green
+  1, // 11  light cyan     -> green
+  3, // 12  light red      -> brown
+  3, // 13  light magenta  -> brown
+  3, // 14  yellow         -> brown
+  3, // 15  white          -> brown, the brightest there is
 ];
 
 /**
- * How far apart two of the four colours are, under the weighting the tables
- * were derived with. Used only to break a collision between ink and ground.
+ * How far apart two of the four colours are, under the weighting
+ * {@link CGA_SOLID} was derived with. Used only to break a collision between
+ * ink and ground.
  */
 const CONTRAST: readonly (readonly number[])[] = [
-  [0, 450, 380, 510],
-  [450, 0, 416, 240],
-  [380, 416, 0, 340],
-  [510, 240, 340, 0],
+  [0, 142, 109, 127],
+  [142, 0, 160, 114],
+  [109, 160, 0, 65],
+  [127, 114, 65, 0],
 ];
 
 /**
@@ -246,20 +243,42 @@ export function cgaTextColours(foreground: number, background: number): [number,
 export class CgaDriver implements DisplayDriver {
   readonly mode: DisplayMode = 'cga';
   readonly display = new Display(DISPLAY_WIDTH, DISPLAY_HEIGHT, CGA_PALETTE_RGB);
-  readonly pixelAspect = 1;
-  readonly monochrome = false;
+  readonly pixelAspect: number = 1;
+  readonly monochrome: boolean = false;
+
+  /**
+   * The pairs and the fill patterns this driver draws with.
+   *
+   * Held per driver rather than read from the module, for the reason Hercules
+   * holds its own: whether `AGIDATA.OVL` was bundled is not known until it has
+   * been read, and the renderer builds a driver when the mode changes, so the
+   * tables arrive with it. Absent, the bytes LSL1's copy holds are used.
+   */
+  readonly pairs: readonly (readonly [number, number])[];
+  readonly fills: readonly (readonly [[number, number], [number, number]])[];
+
+  /** @param tables `AGIDATA.OVL`'s CGA tables, when the game came with them */
+  constructor(tables: CgaTables = CGA_TABLES) {
+    this.pairs = tables.colour.map((nibble) => colourPixels(nibble));
+    this.fills = tables.fill.map(([left, right]) => [colourPixels(left), colourPixels(right)]);
+  }
 
   draw(frame: Frame): void {
     for (const layer of frame.layers) {
       switch (layer.kind) {
-        // Furniture, not picture: a solid colour behind text stays solid.
+        // Furniture rather than picture, and dithered all the same: the
+        // original's fill routine reads a table of its own, and in four
+        // colours it alternates two patterns across the width.
         case 'fill':
-          this.display.fill(CGA_SOLID[layer.colour & 0x0f]!);
+          this.#fillRows(0, this.display.height, layer.colour);
           break;
 
-        case 'rows':
-          clearRows(this.display, layer.from, layer.to, CGA_SOLID[layer.colour & 0x0f]!, IBM_CELL);
+        case 'rows': {
+          const from = layer.from * IBM_CELL.height;
+          const to = Math.min((layer.to + 1) * IBM_CELL.height, this.display.height);
+          this.#fillRows(from, to, layer.colour);
           break;
+        }
 
         case 'picture':
           this.#drawScreen(layer.screen, layer.row * IBM_CELL.height);
@@ -298,26 +317,48 @@ export class CgaDriver implements DisplayDriver {
   }
 
   /**
+   * A band of rows filled with a colour's fill pattern.
+   *
+   * The pattern alternates between neighbouring AGI pixels, which is what the
+   * original's fill routine does: it builds one byte out of two nibbles and
+   * stores it across the row, so the two patterns land on even and odd AGI
+   * pixels. Four device pixels of period, and no variation down the rows.
+   */
+  #fillRows(from: number, to: number, colour: number): void {
+    const [left, right] = this.fills[colour & 0x0f]!;
+
+    for (let y = Math.max(0, from); y < to; y++) {
+      let at = y * this.display.width;
+      for (let x = 0; x < this.display.width; x += PIXEL_ASPECT * 2) {
+        this.display.pixels[at++] = left[0]!;
+        this.display.pixels[at++] = left[1]!;
+        this.display.pixels[at++] = right[0]!;
+        this.display.pixels[at++] = right[1]!;
+      }
+    }
+  }
+
+  /**
    * The picture, dithered.
    *
-   * The pair is swapped on alternate rows, so a run of one colour reads as a
-   * checkerboard rather than as vertical stripes. Two stripes one pixel wide
-   * are the same colour on average and a visibly worse texture, and the flip
-   * costs one exclusive-or.
+   * The pair is drawn the same way on every row, because `CGA_GRAF.OVL` has no
+   * row phase: a run of one colour is vertical stripes one pixel wide. M12 drew
+   * a checkerboard here instead, on the argument that two stripes are the same
+   * colour on average and a worse texture. The argument was sound; the card did
+   * this.
    */
   #drawScreen(screen: ArrayLike<number>, top: number): void {
     for (let y = 0; y < PICTURE_HEIGHT; y++) {
       const destRow = top + y;
       if (destRow < 0 || destRow >= this.display.height) continue;
 
-      const phase = destRow & 1;
       let at = destRow * this.display.width;
       const source = y * PICTURE_WIDTH;
 
       for (let x = 0; x < PICTURE_WIDTH; x++) {
-        const pair = CGA_DITHER[screen[source + x]! & 0x0f]!;
-        this.display.pixels[at++] = pair[phase]!;
-        this.display.pixels[at++] = pair[phase ^ 1]!;
+        const pair = this.pairs[screen[source + x]! & 0x0f]!;
+        this.display.pixels[at++] = pair[0]!;
+        this.display.pixels[at++] = pair[1]!;
       }
     }
   }
@@ -329,16 +370,15 @@ export class CgaDriver implements DisplayDriver {
     for (let y = 0; y < cel.height; y++) {
       const destRow = top + y;
       if (destRow < 0 || destRow >= this.display.height) continue;
-      const phase = destRow & 1;
 
       for (let x = 0; x < cel.width; x++) {
         const colour = cel.pixels[y * cel.width + x]!;
         if (colour === TRANSPARENT) continue;
 
-        const pair = CGA_DITHER[colour & 0x0f]!;
+        const pair = this.pairs[colour & 0x0f]!;
         const at = destRow * this.display.width + left + x * PIXEL_ASPECT;
-        this.display.pixels[at] = pair[phase]!;
-        this.display.pixels[at + 1] = pair[phase ^ 1]!;
+        this.display.pixels[at] = pair[0]!;
+        this.display.pixels[at + 1] = pair[1]!;
       }
     }
   }

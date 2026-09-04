@@ -7,6 +7,7 @@ import { FLAG, VAR } from './engine/state.ts';
 import { bindKeyboard } from './input/keyboard.ts';
 import { present } from './engine/present.ts';
 import { Renderer } from './render/renderer.ts';
+import { decodeCgaTables, type CgaTables } from './render/cgatables.ts';
 import { decodeHgcDither, type HgcDither } from './render/hgcdither.ts';
 import { decodeHgcFont, type HgcFont } from './render/hgcfont.ts';
 import { fingerprint } from './engine/snapshot.ts';
@@ -63,12 +64,21 @@ try {
   // file. Optional for the same reason and with a smaller consequence: absent,
   // the table LSL1's copy of AGIDATA.OVL holds is used, which is the same
   // table for this game and possibly not for another.
+  // And the dither tables, which are interpreter data rather than game data:
+  // 128 bytes at 0x1bea are Hercules', and three tables below them are CGA's.
+  // Optional for the same reason and with a smaller consequence: absent, the
+  // tables LSL1's own copy of AGIDATA.OVL holds are used, which are the right
+  // tables for this game and possibly not for another.
   let herculesDither: HgcDither | undefined;
+  let cgaTables: CgaTables | undefined;
   try {
     const bytes = await source.read('AGIDATA.OVL');
-    if (bytes) herculesDither = decodeHgcDither(bytes);
+    if (bytes) {
+      herculesDither = decodeHgcDither(bytes);
+      cgaTables = decodeCgaTables(bytes);
+    }
   } catch (cause) {
-    shell.showError('AGIDATA.OVL could not be read; Hercules will use the bundled dither table', cause);
+    shell.showError('AGIDATA.OVL could not be read; the bundled dither tables will be used', cause);
   }
   const vocabulary = Vocabulary.parse(wordBytes);
   const summary = summariseGame(resources, objects, vocabulary);
@@ -106,7 +116,7 @@ try {
 
   // The renderer is built after the settings are read, so the first frame is
   // drawn on the adapter the player chose rather than on EGA and then swapped.
-  const renderer = new Renderer(settings.graphics, { herculesFont, herculesDither });
+  const renderer = new Renderer(settings.graphics, { herculesFont, herculesDither, cgaTables });
 
   const controls = new Controls(shell.settingsTools, {
     settings,

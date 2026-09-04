@@ -23,20 +23,38 @@ import {
   CGA_COLLISIONS,
   CGA_COST,
   CGA_DITHER,
+  CGA_FILL,
   CGA_PALETTE_RGB,
   CGA_SOLID,
   CgaDriver,
   cgaTextColours,
 } from '../src/render/drivers/cga.ts';
-import { createDriver } from '../src/render/drivers/index.ts';
+import {
+  CGA_MONO_HEIGHT,
+  CGA_MONO_PALETTE_RGB,
+  CGA_MONO_WIDTH,
+  cgaMonoSolid,
+  cgaMonoTextColours,
+  CgaMonoDriver,
+} from '../src/render/drivers/cgamono.ts';
+import { createDriver, hasMonoVariant } from '../src/render/drivers/index.ts';
 import { EgaDriver } from '../src/render/drivers/ega.ts';
 import { Frame } from '../src/render/frame.ts';
+import {
+  CGA_MONO_PIXELS,
+  CGA_TABLES,
+  CGA_TABLES_AT,
+  decodeCgaTables,
+  monoDensity,
+} from '../src/render/cgatables.ts';
+import { Renderer } from '../src/render/renderer.ts';
 import { PICTURE_HEIGHT, PICTURE_WIDTH, Screens } from '../src/render/screens.ts';
 import { layOutWindow, TextLayer } from '../src/render/text.ts';
 import { ResourceManager } from '../src/resources/manager.ts';
 import { DiskSource } from './helpers/disk-source.ts';
 
-const manager = await ResourceManager.open(await DiskSource.open());
+const source = await DiskSource.open();
+const manager = await ResourceManager.open(source);
 
 /** How many CGA colours there are: four, and every table has to agree. */
 const CGA_COLOURS = CGA_PALETTE_RGB.length / 3;
@@ -53,33 +71,55 @@ test('four colours, and every table covers all sixteen', () => {
     for (const index of pair) {
       assert.ok(index >= 0 && index < CGA_COLOURS, `colour ${colour} uses CGA ${index}`);
     }
-    // Written low-then-high so that (a,b) and (b,a) cannot both appear and be
-    // mistaken for two different appearances: they are the same blend.
-    assert.ok(pair[0]! <= pair[1]!, `colour ${colour} is written in order`);
   }
+
+  // The order within a pair is the original's and it is not sorted: green is
+  // 3,0 and cyan 0,1. Order changes nothing but which pixel of the stripe comes
+  // first, and the original still chose one, so the table keeps it.
+  assert.deepEqual(CGA_DITHER[2], [3, 0]);
+  assert.deepEqual(CGA_DITHER[3], [0, 1]);
 
   for (const index of CGA_SOLID) assert.ok(index >= 0 && index < CGA_COLOURS);
 });
 
-test('sixteen colours reach ten appearances, which is all there are', () => {
-  // Two colours from four is ten blends, not sixteen, and that is the whole
-  // shape of the problem: six of the sixteen must share.
-  const available = (CGA_COLOURS * (CGA_COLOURS + 1)) / 2;
-  assert.equal(available, 10);
+test('sixteen colours reach twelve appearances, of the sixteen ordered pairs', () => {
+  // Ordered, because the original's table is: four of its sixteen entries are a
+  // pair the reverse of another's, and drawn as stripes those are two different
+  // pictures even though they are the same colour on average.
+  const ordered = CGA_COLOURS * CGA_COLOURS;
+  assert.equal(ordered, 16);
 
   const used = new Set(CGA_DITHER.map((pair) => pair.join(',')));
   assert.equal(used.size, CGA_COST.appearances);
-  assert.equal(used.size, available, 'every blend is put to work');
+  assert.equal(used.size, 12, 'twelve of the sixteen, which leaves the four it collides on');
+
+  // As blends -- ignoring the order -- it reaches all ten there are, which is
+  // the most a pair of four colours can: every blend is put to work, and the
+  // four entries that collide are the surplus.
+  const blends = new Set(
+    CGA_DITHER.map((pair) => [...pair].sort((a, b) => a - b).join(',')),
+  );
+  assert.equal(blends.size, (CGA_COLOURS * (CGA_COLOURS + 1)) / 2);
+  assert.equal(blends.size, 10);
 });
 
-test('only black is drawn as black, or text goes missing', () => {
-  // The bundled game sets `set.text.attribute(6, 0)` -- brown on black -- in
-  // five places. Under pure nearest match brown, red and dark grey all land on
-  // black, and brown on black is then not an approximation but an empty line.
-  assert.equal(CGA_SOLID[0], 0);
-  for (let colour = 1; colour < PALETTE_SIZE; colour++) {
-    assert.notEqual(CGA_SOLID[colour], 0, `colour ${colour} would be invisible on black`);
-  }
+test('the fill table reaches more appearances than the picture table', () => {
+  // Because it alternates two patterns where the picture uses one, which is the
+  // original's own inconsistency rather than this engine's.
+  const filled = new Set(CGA_FILL.map((halves) => halves.map((pair) => pair.join(',')).join('/')));
+  assert.equal(filled.size, CGA_COST.fillAppearances);
+  assert.ok(filled.size > CGA_COST.appearances);
+});
+
+test('the four colours are the palette the original selected', () => {
+  // Palette 0 at low intensity, with the background register set to colour 1 --
+  // so the darkest thing on a CGA screen is blue and nothing is ever black.
+  assert.deepEqual([...CGA_PALETTE_RGB], [
+    0, 0, 170,
+    0, 170, 0,
+    170, 0, 0,
+    170, 85, 0,
+  ]);
 });
 
 test('ink never lands on its own ground', () => {
@@ -243,26 +283,40 @@ test('a CGA frame holds nothing but the four colours it has', async () => {
   }
 });
 
-test('the dither is a checkerboard, not a set of stripes', async () => {
-  // A region of one colour becomes a pair of pixels repeated. Drawn the same
-  // way on every row that is two one-pixel stripes; swapped on alternate rows
-  // it is a checkerboard, which is the same colour on average and a visibly
-  // better texture.
+test('the dither is stripes, not a checkerboard', () => {
+  // M12 swapped the pair on alternate rows, so a region read as a checkerboard.
+  // CGA_GRAF.OVL has no row phase -- HGC_GRAF.OVL masks the row with `and dx,
+  // 3` and this one has no such instruction -- so a run of one colour is two
+  // one-pixel stripes, identical on every row.
   const driver = new CgaDriver();
-  const flat = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(11); // light cyan, a mixed blend
+  const flat = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(11); // light cyan: 1,3
   driver.draw(new Frame().fill(0).picture(flat, PICTURE_ROW));
 
   const [a, b] = CGA_DITHER[11]!;
-  assert.notEqual(a, b, 'light cyan is a mixed blend, or this proves nothing');
+  assert.notEqual(a, b, 'light cyan is a mixed pair, or this proves nothing');
 
   const at = (x: number, y: number) => driver.display.pixels[y * driver.display.width + x]!;
   const top = PICTURE_ROW * 8;
 
-  assert.equal(at(0, top), a);
-  assert.equal(at(1, top), b);
-  assert.equal(at(0, top + 1), b, 'the next row starts on the other colour');
-  assert.equal(at(1, top + 1), a);
-  assert.equal(at(0, top + 2), a, 'and the row after that is back');
+  for (const row of [top, top + 1, top + 2]) {
+    assert.equal(at(0, row), a, `row ${row} starts on the same colour`);
+    assert.equal(at(1, row), b);
+  }
+});
+
+test('a fill is dithered, and with the fill table rather than the picture one', () => {
+  // The original's fill routine builds its byte from two nibbles, so the
+  // pattern alternates across the width. Green is the clearest case: the
+  // picture draws it 3,0 and a fill lays 1,0 then 1,1.
+  const driver = new CgaDriver();
+  driver.draw(new Frame().fill(2));
+
+  const at = (x: number) => driver.display.pixels[x]!;
+  const [left, right] = CGA_FILL[2]!;
+  assert.deepEqual([left, right], [[1, 0], [1, 1]]);
+  assert.deepEqual([at(0), at(1), at(2), at(3)], [1, 0, 1, 1]);
+  assert.deepEqual([at(4), at(5), at(6), at(7)], [1, 0, 1, 1], 'and it repeats every four');
+  assert.notDeepEqual([at(0), at(1)], [...CGA_DITHER[2]!], 'which the picture table would not');
 });
 
 test('a solid colour stays solid: text is not dithered', () => {
@@ -294,4 +348,190 @@ test('CGA leaves EGA alone', async () => {
 
   assert.deepEqual(ega.display.pixels, before);
   assert.equal(ega.display.palette.length / 3, PALETTE_SIZE, 'and still has sixteen colours');
+});
+
+// --- the tables are the interpreter's -------------------------------------
+
+test("the shipped tables are the bytes in the game's own AGIDATA.OVL", async () => {
+  // The strongest test here: the constants in cgatables.ts are not derived and
+  // not measured, they are a copy, and this is what says so.
+  const bytes = await source.read('AGIDATA.OVL');
+  assert.ok(bytes, 'AGIDATA.OVL is bundled');
+
+  const fromFile = decodeCgaTables(bytes);
+  assert.deepEqual([...fromFile.colour], [...CGA_TABLES.colour]);
+  assert.deepEqual([...fromFile.mono], [...CGA_TABLES.mono]);
+  assert.deepEqual([...fromFile.monoFill], [...CGA_TABLES.monoFill]);
+  assert.deepEqual(fromFile.fill.map((pair) => [...pair]), CGA_TABLES.fill.map((pair) => [...pair]));
+
+  // And the offsets are where the driver's code loads them from.
+  assert.deepEqual({ ...CGA_TABLES_AT }, { fill: 0x1b78, mono: 0x1ba8, colour: 0x1bb8 });
+});
+
+test('a cell of the two-colour mode is four pixels of one bit', () => {
+  // Which is what makes one table serve both modes: a nibble is one AGI pixel
+  // either way -- two pixels of two bits in 320x200, four of one in 640x200.
+  assert.equal(CGA_MONO_PIXELS, 4);
+  assert.equal(CGA_MONO_WIDTH, PICTURE_WIDTH * CGA_MONO_PIXELS);
+  assert.equal(CGA_MONO_WIDTH, 640);
+  assert.equal(CGA_MONO_HEIGHT, 200);
+});
+
+test('the two-colour table is a permutation, so no two colours look alike', () => {
+  // Sixteen colours, sixteen distinct four-pixel patterns. More than either of
+  // the other modes manages -- and the reason it can is that a pattern carries
+  // more than a density: five densities over sixteen colours means eleven pairs
+  // share one, and only the arrangement separates them.
+  assert.equal(new Set(CGA_TABLES.mono).size, PALETTE_SIZE);
+  assert.equal(monoDensity(CGA_TABLES.mono[0]!), 0, 'black is unlit');
+  assert.equal(monoDensity(CGA_TABLES.mono[15]!), CGA_MONO_PIXELS, 'white is solid');
+
+  const densities = new Set(CGA_TABLES.mono.map((nibble) => monoDensity(nibble)));
+  assert.equal(densities.size, CGA_MONO_PIXELS + 1, 'five densities, 0 through 4');
+});
+
+test('the two-colour picture table and the fill column are the same table', () => {
+  // Forty-eight bytes apart in the file, with no reason to agree unless both
+  // have been read right. `decodeCgaTables` refuses a file where they do not.
+  assert.deepEqual([...CGA_TABLES.monoFill], [...CGA_TABLES.mono]);
+  assert.ok(CGA_TABLES_AT.fill < CGA_TABLES_AT.mono);
+});
+
+test('a wrong AGIDATA.OVL is refused rather than half read', () => {
+  const bytes = new Uint8Array(CGA_TABLES_AT.colour + 16);
+  assert.throws(() => decodeCgaTables(bytes.subarray(0, 100)), /bytes/);
+
+  // Long enough, but the two two-colour tables disagree: the reading is wrong
+  // or the file is not this one, and either way it is not usable.
+  bytes[CGA_TABLES_AT.mono] = 0x22;
+  assert.throws(() => decodeCgaTables(bytes), /disagree/);
+});
+
+// --- the two-colour mode ---------------------------------------------------
+
+test('the two-colour mode draws every colour at its own density', () => {
+  const driver = new CgaMonoDriver();
+  const top = PICTURE_ROW * 8;
+
+  for (let colour = 0; colour < PALETTE_SIZE; colour++) {
+    const flat = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(colour);
+    driver.draw(new Frame().fill(0).picture(flat, PICTURE_ROW));
+
+    let lit = 0;
+    for (let x = 0; x < CGA_MONO_PIXELS; x++) {
+      lit += driver.display.pixels[top * driver.display.width + x]!;
+    }
+    assert.equal(lit, monoDensity(CGA_TABLES.mono[colour]!), `colour ${colour}`);
+  }
+});
+
+test('the two-colour mode has no row phase either', () => {
+  const driver = new CgaMonoDriver();
+  const flat = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(9); // light blue: .###
+  driver.draw(new Frame().fill(0).picture(flat, PICTURE_ROW));
+
+  const top = PICTURE_ROW * 8;
+  const row = (y: number) => [0, 1, 2, 3].map((x) =>
+    driver.display.pixels[y * driver.display.width + x]!);
+
+  assert.deepEqual(row(top), [0, 1, 1, 1]);
+  assert.deepEqual(row(top + 1), [0, 1, 1, 1], 'the same on the next row');
+});
+
+test('two colours put ink and ground on opposite sides, always', () => {
+  // Brown on black is the pair the bundled game sets in five places, and both
+  // are unlit: 1/4 and 0/4. Without the fallback those five lines are empty.
+  assert.equal(cgaMonoSolid(6), cgaMonoSolid(0));
+  const [ink, ground] = cgaMonoTextColours(6, 0);
+  assert.notEqual(ink, ground);
+
+  for (let a = 0; a < PALETTE_SIZE; a++) {
+    for (let b = 0; b < PALETTE_SIZE; b++) {
+      if (a === b) continue;
+      const [f, g] = cgaMonoTextColours(a, b);
+      assert.notEqual(f, g, `${a} on ${b}`);
+    }
+  }
+});
+
+test('the two-colour mode presents at the size the four-colour one does', () => {
+  // Twice the pixels across the same tube, so its pixel is half as wide. The
+  // canvas multiplies the two together, which is what makes the two modes the
+  // same shape on screen.
+  const colour = new CgaDriver();
+  const mono = new CgaMonoDriver();
+
+  assert.equal(mono.display.width * mono.pixelAspect, colour.display.width * colour.pixelAspect);
+  assert.equal(mono.display.height, colour.display.height);
+  assert.equal(mono.display.palette.length / 3, 2);
+  assert.deepEqual([...CGA_MONO_PALETTE_RGB], [0, 0, 0, 170, 170, 170]);
+});
+
+test('every picture in the game renders in the two colours it has', async () => {
+  const driver = new CgaMonoDriver();
+
+  for (const id of manager.ids('pic')) {
+    const screens = Screens.fromPicture(await manager.load('pic', id));
+    driver.draw(new Frame().fill(0).picture(screens.visual, PICTURE_ROW));
+
+    for (const pixel of driver.display.pixels) {
+      assert.ok(pixel <= 1, `pic ${id} drew ${pixel}`);
+    }
+  }
+});
+
+test('the two-colour mode keeps a row for the command line', () => {
+  // Unlike Hercules, whose picture covers the grid's rows 1 to 24. This one
+  // draws the picture's 168 rows in 8-row cells, so rows 22 to 24 are clear --
+  // which is why the box is keyed on the screen's geometry rather than on the
+  // monitor variable. See `hasInputRow`.
+  const driver = new CgaMonoDriver();
+  const picture = PICTURE_ROW * driver.cell.height + PICTURE_HEIGHT;
+
+  assert.equal(picture, 176);
+  assert.ok(picture <= 23 * driver.cell.height, 'the input row is below the picture');
+  assert.equal(driver.display.height / driver.cell.height, 25, 'and there are 25 rows');
+});
+
+// --- and the menu item that reaches it -------------------------------------
+
+test('only CGA has a mode to switch to when the game asks for mono', () => {
+  assert.equal(hasMonoVariant('cga'), true);
+  assert.equal(hasMonoVariant('ega'), false);
+  assert.equal(hasMonoVariant('hercules'), false, 'it is monochrome already');
+});
+
+test('the renderer answers a mono display by changing the card, on CGA', () => {
+  const renderer = new Renderer('cga');
+  assert.ok(renderer.driver instanceof CgaDriver);
+
+  assert.equal(renderer.setMonochrome(true), true, 'the driver changed');
+  assert.ok(renderer.driver instanceof CgaMonoDriver);
+  assert.equal(renderer.driver.mode, 'cga', 'and it is still CGA above the seam');
+  assert.equal(renderer.setMonochrome(true), false, 'asked twice, it does nothing');
+
+  assert.equal(renderer.setMonochrome(false), true);
+  assert.ok(renderer.driver instanceof CgaDriver);
+});
+
+test('mono survives a mode switch away and back', () => {
+  // A player who moves to EGA while the game is in mono and comes back should
+  // find the card as the game left it.
+  const renderer = new Renderer('cga');
+  renderer.setMonochrome(true);
+
+  renderer.setMode('ega');
+  assert.equal(renderer.driver.mode, 'ega', 'and EGA has no mono variant to build');
+
+  renderer.setMode('cga');
+  assert.ok(renderer.driver instanceof CgaMonoDriver);
+});
+
+test('on EGA and Hercules a mono display changes nothing about the driver', () => {
+  for (const mode of ['ega', 'hercules'] as const) {
+    const renderer = new Renderer(mode);
+    const before = renderer.driver;
+    assert.equal(renderer.setMonochrome(true), false);
+    assert.equal(renderer.driver, before);
+  }
 });

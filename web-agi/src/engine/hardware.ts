@@ -147,6 +147,26 @@ export function monitorTypeFor(mode: DisplayMode): number {
 }
 
 /**
+ * Whether the display leaves a row for the command line.
+ *
+ * A geometric fact rather than a preference, and the arithmetic is the picture
+ * against the display's character cell: CGA and EGA draw the picture's 168 rows
+ * in 8-row cells, so it covers the grid's rows 1 to 21 and the input row at 23
+ * is clear. Hercules draws them in 14-row cells -- 336 device rows, the grid's
+ * rows 1 to 24 -- so there is no row left and the command line becomes a box.
+ *
+ * Kept here beside {@link monitorTypeFor} because it is the same kind of thing:
+ * what a display mode means to the engine above the seam. It is deliberately
+ * *not* keyed on the monitor variable. M13 keyed it there, on the reasoning that
+ * Hercules was the only monochrome display -- and M16 gave CGA a monochrome
+ * mode of its own, which has all 25 rows and needs its input row back. The
+ * original agreed: a CGA in 640x200 drew the command line on a row.
+ */
+export function hasInputRow(mode: DisplayMode): boolean {
+  return mode !== 'hercules';
+}
+
+/**
  * Which machine the shell's choices add up to.
  *
  * The computer type is a separate variable from the monitor, and the shell has
