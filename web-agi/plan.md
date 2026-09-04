@@ -3,7 +3,7 @@
 Companion to [spec.md](spec.md). The spec says _what_ to build; this says in what
 order, in which files, and how each step is proven to work.
 
-> **M0-M16 are done and shipped.** The
+> **M0-M17 are done and shipped.** The
 > milestones are kept as they were written, for the reasoning behind the
 > sequencing and for the format measurements in the next section. They are not a
 > description of the code as built: several modules ended up named or split
@@ -29,6 +29,7 @@ M13 Hercules                            complete
 M14 The shell the player sees           complete
 M15 The dither the original shipped     complete
 M16 CGA, as the original drew it        complete
+M17 The page, designed                  complete
 ```
 
 ## Grounding: what was verified before planning
@@ -2226,6 +2227,351 @@ the bundled file and pinned to it by a test; the palette is the one the mode
 setup selects; the dither is stripes; fills use the fill table; the cost is
 re-measured and recorded; and `Ctrl-R` puts the card into 640x200 in two
 colours, as it did in 1987.
+
+---
+
+## M17 — The page, designed — complete
+
+M14 separated the player's surface from the developer's and stopped the shell
+stealing the game's keys. It did not touch how any of it *looks*, and nothing
+since has either: the page is the one written in M0 to prove the canvas mounted,
+with three milestones' worth of controls appended to it.
+
+This is the second milestone with no format to measure and no hardware to
+imitate, and like M14 what it has instead is a list of things that are
+demonstrably wrong. What it turned out to have as well was a number: Hercules
+at 2x is 696 pixels tall, and that one measurement decided the layout.
+
+### Grounding: what the page was
+
+```text
+the stylesheet          one template literal in shell/shell.ts, 24 hex
+                        literals, `color-scheme: dark` and no light palette
+the layout              a centred flex column: title, canvas, one control
+                        row, status, four centred help paragraphs, errors,
+                        developer panel. No breakpoint anywhere, and
+                        `width: min(960px, 100%)` doing all the adapting
+                        there is
+the controls            two selects and one button in a bordered row, in two
+                        labelled groups, plus two file buttons
+the help                four sentences of prose, centred, naming eight keys
+                        inside them
+on load                 an empty page with `loading game files...` in it
+the title               `Leisure Suit Larry 1 / web-agi` in 12px uppercase
+                        gold, which is the developer's name for the thing
+                        rather than the player's
+index.html              a viewport meta, no favicon, no theme-color
+```
+
+### The two defects worth naming
+
+**The canvas is sized from the width and the window has a height.** `fit()`
+reads `window.innerWidth` and nothing else, so the scale it picks is whatever
+the width allows:
+
+```text
+window 1440x900, EGA    scale 4 -> a 1280x800 canvas, and roughly 190px of
+                        title, controls, status and help under it. The page
+                        scrolls, and the command line the player types into
+                        is the part that goes off the bottom
+```
+
+That is the M14-shaped defect for this milestone: not fatal, but the symptom of
+the cause, which is that the page was never laid out against a viewport at all.
+
+**Switching display mode changes how big the game is.** Whole-number scaling is
+right and stays, but it is applied to each driver's raw buffer with no reference
+to the others:
+
+```text
+window 1440 wide    EGA 320x200   scale 4   ->  1280 x 800 presented
+                    CGA 320x200   scale 4   ->  1280 x 800
+                    Hercules 720x348  scale 1  ->   720 x 348
+```
+
+So a player comparing the modes -- which is the entire point of M10 to M16 --
+gets a picture a third of the width when they pick the one that draws the most
+pixels. `MAX_WIDTH` was raised to 1440 in M13 to let Hercules reach 2x, which
+helps a 2560-wide screen and not a laptop.
+
+### What "modern" is allowed to mean
+
+The risk in a milestone like this is that it becomes decoration, so the line is
+drawn before the work rather than after:
+
+```text
+in        colour and spacing as tokens, defined once; a light palette beside
+          the dark one, chosen by prefers-color-scheme; a type scale rather
+          than five ad-hoc font sizes; the keys shown as <kbd> keys; focus
+          visible for whoever is on a keyboard; a real loading state; a
+          favicon and a theme-color
+out       any framework, any build step, any second stylesheet file, any
+          animation the game does not have, and any control the game does
+          not have -- a theme switch included: the OS setting is the setting
+```
+
+The page is still one HTML file, one `<style>` and the same DOM-building code.
+Whatever this milestone costs, it costs in bytes of CSS.
+
+### Responsive, and the non-goal it does not touch
+
+The spec's non-goal is touch *controls*, and it stands. Nothing here adds an
+on-screen d-pad, a tap-to-move, or a soft keyboard trigger; the game is played
+on a keyboard.
+
+What the milestone owes a narrow screen is that it not be broken, and that it
+say so:
+
+```text
+>= 1100     canvas and controls side by side if that fits the height better
+            than stacked; developer panel closed and out of the flow
+640-1100    one column, canvas first, controls in one wrapped row
+< 640       one column, canvas at whatever whole multiple fits, controls
+            stacked full-width, and one line saying the game needs a
+            keyboard -- said once, not as a dismissible banner
+```
+
+The keyboard line is the honest version of responsiveness here. A phone can
+load the page and watch the opening; it cannot type `look at the sign`, and a
+layout that hides that fact is worse than one that admits it.
+
+### The focus problem, which is real and has a cost
+
+Every control in `shell/controls.ts` calls `blur()` on itself after it is used,
+because a focused `<select>` eats the arrow keys that walk ego. That is correct
+for the mouse and hostile to a keyboard: tab to a control, change it, and focus
+is thrown back to the body with no visible trace of where it was.
+
+The rule this milestone works to is that the *game* keeps the keys and focus
+stops being invisible: `:focus-visible` rings on everything reachable, and the
+blur stays. A keyboard user tabbing forward starts from the body each time,
+which is a real cost and is recorded here rather than designed around, because
+the alternative -- keeping focus in the control -- breaks the game.
+
+### Files
+
+```text
+index.html              favicon, theme-color, and a title the player would
+                        recognise
+src/shell/shell.ts      the tokens, the type scale, the two palettes, the
+                        breakpoints, and the layout they describe
+src/shell/controls.ts   the controls as a group that reads at a glance, and
+                        focus rings on all of them
+src/shell/canvas.ts     fit() against both dimensions, and one presentation
+                        size the three modes are comparable in
+src/main.ts             the help as keys rather than prose, the loading
+                        state, and the narrow-screen line
+test/shell.test.ts      what can be held without a browser: the fit
+                        calculation, and that the modes come out comparable
+```
+
+### Order of work
+
+1. **The canvas first**, because it is the defect and because it decides how
+   much room the rest of the page has. `fit()` takes the space it is given in
+   both dimensions and returns the largest whole multiple that fits inside it;
+   the presentation target becomes one box the three drivers are scaled into,
+   so Hercules and EGA come out within a step of each other instead of a
+   factor of three apart. This is arithmetic, so it is tested, headless.
+2. **The tokens.** The 24 literals become one `:root` block plus a
+   `prefers-color-scheme` override, and every rule is rewritten in terms of
+   them. Nothing moves on screen in this step -- it is the change that makes
+   the next two cheap.
+3. **The layout.** The breakpoints above, with the canvas as the element the
+   others give room to rather than the reverse.
+4. **The words.** Keys as `<kbd>`, the four help sentences as a short key
+   list, a loading state that says which of the three phases it is in, and the
+   narrow-screen keyboard line.
+
+### What this is not
+
+No touch controls, no theming beyond the OS setting, no second build, no
+framework, and no new control -- M14's four settings and two file actions are
+exactly the four settings and two file actions this milestone ends with. The
+engine, the drivers and the tables are not opened: if a change to `render/`
+turns out to be needed, the milestone is wrong about its own boundary and the
+change waits.
+
+**Done when:** the page is usable and unbroken from 360px to 2560px wide; the
+canvas is never taller than the window at any mode or window size and the three
+display modes present within one scale step of each other; the page follows the
+viewer's light or dark setting from one set of tokens; every interactive element
+shows focus; the game's keys are readable at a glance without reading a
+sentence; a narrow screen says a keyboard is needed; and not one control has
+been added, removed or rewired.
+
+### The defect under the defect: the canvas was sizing its own container
+
+Step 1 was written as arithmetic -- take the stage's box, return the largest
+whole multiple -- and it *was* arithmetic. What it uncovered was not.
+
+With `fit()` reading the stage instead of the window, Hercules came out at 1x on
+a 1440-wide screen with room for 2x. The stage was a `1fr` grid row, but the
+canvas was in its flow, so the row was sized by its content:
+
+```text
+the canvas is sized from the stage's height
+the stage's height is the row's content, which is the canvas
+```
+
+Two fixed points satisfy that, and the page settles on whichever it reaches
+first. Hercules found the small one: 348 tall, so a 348-tall row, so 1x for
+ever. EGA never showed it -- at 320x200 the loop happens to converge on the
+same answer the window would have given -- which is why fourteen milestones of
+looking at an EGA page never found it.
+
+The fix is that the canvas is not in the flow. `position: absolute; inset: 0;
+margin: auto` centres it and leaves the row's height entirely to the grid, and
+the loop cannot form because one direction of it is gone. The comment on that
+rule in `shell.ts` says so, because it looks like a centring trick and it is
+load-bearing.
+
+**And a second one on the way there.** The stage row read 604 pixels tall in a
+900-pixel window, which is the *content* height again -- because
+`min-height: 100dvh` was the only height on the grid and the browser being
+measured in did not implement `dvh`. A dropped declaration is normally
+cosmetic; here it removed the definite height the whole layout depends on. It is
+now `min-height: 100vh` followed by `min-height: 100dvh`, in that order, so a
+browser that knows the newer unit overrides the older one and a browser that
+does not still has a height.
+
+### 696, which is what actually laid out the page
+
+Hercules' framebuffer is 348 tall and its next whole multiple is 696. So on a
+1440x900 laptop the entire page around the stage has to fit in 204 pixels, or
+the mode that draws the most pixels is presented at half the size of the other
+two.
+
+That is a budget, and it is what the chrome was designed against. The page went
+from five rows to three, and the two that went are the two it can do without: a
+status line reads perfectly well beside the title, and a developer panel that
+pushes the game down whenever it is opened was wrong anyway -- opening a
+debugger should not resize the thing being debugged.
+
+```text
+what is left                     the header (title, status, Developer),
+                                 the controls and the key caps on one row,
+                                 and one advisory line
+measured, chrome at 12px gaps    209   -- 5 pixels over the budget
+measured, at 8px gaps and with
+  the advisory line at one line  195   -- clears it
+```
+
+Both numbers are the browser's, read off the stage the page gave itself; the
+second is what shipped, and at 195 the budget clears on any viewport 891 pixels
+tall or more. At a 1440x900 viewport: stage 1440x705, canvas 1440x696, Hercules
+at 2x.
+
+Five pixels decided the last two rules in that stylesheet, which is worth being
+plain about rather than dressing up. It is also why they carry a comment: an
+8-pixel gap that looks like taste is holding a mode at twice the size.
+
+### What the modes measure at
+
+`fitPresentation` against a stage of the page's full width, with the 195-pixel
+chrome subtracted from the viewport:
+
+```text
+viewport     stage        EGA            Hercules        shortest/tallest
+360x780      360x585      320x200 @1     360x174 @0.50   87%
+768x1024     768x829      640x400 @2     720x348 @1      87%
+1024x768     1024x573     640x400 @2     720x348 @1      87%
+1280x800     1280x605     960x600 @3     720x348 @1      58%   <- the band
+1366x768     1366x573     640x400 @2     720x348 @1      87%
+1440x900     1440x705     960x600 @3     1440x696 @2     86%
+1920x1080    1920x885     1280x800 @4    1440x696 @2     87%
+2560x1440    2560x1245    1920x1200 @6   2160x1044 @3    87%
+```
+
+Against the 33% the milestone started from. The band that remains is a stage
+600 to 695 pixels tall: EGA has reached 3x and Hercules cannot reach 2x, which
+is 58% -- the row above, and a 1280x800 screen is a real screen rather than a
+contrived one.
+
+There is no way to close it that this milestone was willing to take. 1.5x would
+put Hercules' dither on an alternating one-and-two-pixel grid, and that dither
+is the whole of what the mode is for -- M15 spent a milestone getting it out of
+the interpreter's own file. Shrinking EGA to match would be worse again: making
+a mode that is right look wrong so that a mode that is limited looks less
+limited. So the band is recorded rather than fixed, which is the same answer
+M16 gave about its 11% of lost boundaries.
+
+### What the plan got wrong
+
+It proposed the canvas and the controls side by side above 1100 pixels. The
+arithmetic says no, and says it clearly: a 260-pixel rail on a 1440-wide screen
+leaves 1140 for the stage, EGA stays at 3x because it was height-bound anyway,
+and Hercules drops from 2x to 1x because 1140 is less than 1440.
+
+So the layout is one column at every width. That is not a compromise -- it is
+what the numbers asked for, and the same numbers are why the stage is the only
+part of the page with no horizontal padding.
+
+### What is in the files
+
+```text
+index.html              the game's own title, a description, two theme-colour
+                        meta tags for the two palettes, and a favicon as an
+                        inline SVG data URI so the page asks for no second file
+src/shell/shell.ts      37 tokens, two palettes, the three-row grid, the
+                        stage rule above, the developer overlay, focus rings,
+                        kbd caps, the loading placeholder and its one
+                        animation (which prefers-reduced-motion turns off)
+src/shell/canvas.ts     fitPresentation, exported and pure; the stage measured
+                        rather than the window; a ResizeObserver, because the
+                        controls wrapping is not a window resize
+src/shell/controls.ts   the label above the control rather than in front of it
+src/main.ts             four loading phases, and the help as keys
+test/shell.test.ts      five tests on the arithmetic
+```
+
+### What the tests hold now
+
+```text
+no mode is ever taller or wider than the box it is given
+enlarging is by whole multiples, in every mode, at every size
+a buffer wider than the stage is shrunk rather than allowed to overflow
+the modes are within 20% of each other's height at three window sizes
+an unlaid-out stage asks for nothing rather than for a 1x1 canvas
+```
+
+403 tests to 408. The four M14 keyboard tests are untouched, which is the point
+of them: this milestone rewrote every line of the shell's CSS and moved the
+developer panel into the header, and the rule about whose keys are whose did not
+notice.
+
+### What it cost
+
+```text
+                  before      after
+index.html        0.34 kB     1.69 kB     (gzip 0.24 -> 0.79)
+the bundle        115.50 kB   125.36 kB   (gzip 38.66 -> 41.57)
+```
+
+About 3.5 kB gzipped for the whole milestone, most of it the stylesheet and the
+favicon. No framework, no second file, no build flag.
+
+### What this is not, still
+
+No touch controls: a phone gets a page that works, a canvas at the largest
+multiple that fits, and one line saying the game is typed at. No theme switch:
+`prefers-color-scheme` chooses, and the shell's controls are still the four
+settings and two file actions M14 shipped. Nothing under `render/` was opened.
+
+And the focus rule stands as written: every control still hands focus back to
+the body so the game keeps the keyboard, and what the milestone added is that
+you can now see where focus was while it was there. A keyboard user still tabs
+from the body each time. That is a cost, it is recorded, and the alternative
+breaks walking.
+
+**Done.** The page is one grid of three rows with the canvas out of the flow and
+the stage measured rather than assumed; the canvas is never taller than the
+window in any mode; the three display modes present within 14% of each other's
+height wherever Hercules can reach a whole multiple, and the band where it
+cannot is measured and recorded; the palette follows the viewer's setting from
+one set of tokens; the game's keys are key caps; loading says which of four
+things it is doing; and the developer panel opens over the game instead of
+moving it.
 
 ---
 

@@ -128,25 +128,35 @@ then the menu, then the command line — which claims anything printable — and
 what is left reaches ego's feet. That is why the arrow keys walk while the
 letters type.
 
-## Debug keys
+## The developer panel
 
-Behind function keys, because every letter now goes to the game's command line:
+Behind one collapsed panel in the header, because every letter goes to the
+game's command line and every function key worth having is one the game has
+already bound. `F7` used to be the priority screen *and* the game's Restore,
+and one press did both.
 
 ```text
-F7    swap the visual screen for the priority screen
-F8    dump the engine's state below the canvas
-F9    disassemble the current room's script
+Priority screen      swap the visual screen for the priority screen
+State dump           dump the engine's state into the panel
+Disassemble room     disassemble the current room's script
 ```
 
-`F7` is the one that earns its keep. Occlusion and blocking are decided by pixels
+Each is a button, and a shortcut while the panel is open: `Alt+Shift+P`,
+`Alt+Shift+S`, `Alt+Shift+D`. Every shell shortcut is checked against the keys
+the loaded game's scripts have claimed, and refused if the game wants it -- so
+the rule holds for the next game too. The panel opens *over* the game rather
+than below it: opening a debugger should not resize the thing being debugged.
+
+The priority screen is the one that earns its keep. Occlusion and blocking are decided by pixels
 nobody can see, so being able to look at them is the difference between
 diagnosing a bug and guessing at it.
 
-`F8` reports the room and cycle counters, what the game is waiting on, every
-object in the view table, the variables and flags the game has actually put
+The state dump reports the room and cycle counters, what the game is waiting on,
+every object in the view table, the variables and flags the game has actually put
 something in, and any commands it reached that the engine cannot yet do.
 
-`F9` prints the room's bytecode as readable text with its messages inline.
+The disassembly prints the room's bytecode as readable text with its messages
+inline.
 Reserved variables and flags are where an interpreter runs without error and
 still does the wrong thing, and no state dump says what a script was *trying* to
 do — only reading it does.
@@ -157,9 +167,11 @@ do — only reading it does.
 src/
   main.ts         wiring: load, build the machine, drive the frame loop
   shell/          the DOM around the canvas
-    shell.ts        mount point, status line, error surface
-    canvas.ts       canvas element, letterboxing, no smoothing
-    debug.ts        the three debug keys and what they print
+    shell.ts        the layout, the palettes, status line, error surface
+    canvas.ts       canvas element, and how big it is drawn
+    controls.ts     the player's settings, apart from the game's own
+    settings.ts     what the player chose, and how it is remembered
+    debug.ts        the developer panel's tools and what they print
   resources/      getting bytes and turning them into resources
     source.ts       where bytes come from; BundledSource fetches them
     directory.ts    the four DIR files -> resource location tables

@@ -124,7 +124,14 @@ export class Controls {
   ): HTMLElement {
     const wrapper = document.createElement('label');
     wrapper.className = 'shell__choice';
-    wrapper.append(`${label}: `);
+
+    // The name above the control rather than in front of it: two selects and
+    // a button on one row read as a group when their labels line up, and the
+    // row still wraps to a column on a narrow screen without the labels
+    // becoming orphans.
+    const caption = document.createElement('span');
+    caption.textContent = label;
+    wrapper.append(caption);
 
     const select = document.createElement('select');
     for (const choice of choices) {

@@ -34,10 +34,14 @@ if (!root) throw new Error('missing #app element');
 const shell = mountShell(root);
 
 try {
-  shell.setStatus('loading game files...');
+  // What loading is doing, said in the stage the canvas will take. Four
+  // megabytes of resources and a first cycle is long enough that a page saying
+  // nothing looks like a page that has failed.
+  shell.setLoading('reading the game directory');
 
   const source = await BundledSource.load();
   const resources = await ResourceManager.open(source);
+  shell.setLoading('decoding resources');
   await resources.preload();
 
   const objectBytes = await source.read('OBJECT');
@@ -53,6 +57,7 @@ try {
   // letterforms and nothing else, so a failure to read or decode it is
   // reported and shrugged off rather than allowed to stop the game.
   let herculesFont: HgcFont | undefined;
+  shell.setLoading('reading the interpreter\u2019s own files');
   try {
     const bytes = await source.read('HGC_FONT');
     if (bytes) herculesFont = decodeHgcFont(bytes);
@@ -198,12 +203,17 @@ try {
   });
 
   shell.setHelp([
-    'Arrow keys or keypad move. Type commands and press Enter.',
-    'Esc opens menus. Tab opens inventory. F2 toggles sound.',
+    { keys: ['\u2190', '\u2191', '\u2193', '\u2192'], does: 'walk' },
+    { keys: ['Enter'], does: 'do what you typed' },
+    { keys: ['Esc'], does: 'menus' },
+    { keys: ['Tab'], does: 'inventory' },
+    { keys: ['F2'], does: 'sound' },
+    ...(storage
+      ? [{ keys: ['F5', 'F7'], does: 'save, restore' } as const]
+      : []),
     storage
-      ? 'F5 saves. F7 restores. Export and Import keep saves in a file.'
+      ? 'The game\u2019s own menus list its other keys.'
       : 'This browser will not let the game save or restore.',
-    'The game menus list the rest of its shortcuts.',
   ]);
   shell.setLog([
     ...formatSummary(summary),
@@ -329,6 +339,7 @@ try {
   };
 
   cycle.start(0);
+  shell.setLoading('starting the interpreter');
 
   // The game starts with its sound off, because no browser will let a page make
   // a noise before it has been touched and a game that says "Sound:on" while
@@ -345,7 +356,10 @@ try {
     if (output) sound.setOutput(output);
   });
 
+  // The canvas has a frame on it from here, so the placeholder is in its way.
+  shell.clearLoading();
   paint();
+  canvas.fit();
   requestAnimationFrame(frame);
 
   // Report where the game is only on the developer surface.

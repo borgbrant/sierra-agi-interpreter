@@ -1024,9 +1024,9 @@ doing something.
 ## Rendering to canvas
 
 A single `<canvas>`, scaled up by whole-number factors with smoothing disabled
-so the pixels stay sharp. Its backing size is the running driver's own -- EGA's
-320x200 today, and 720x348 when Hercules arrives -- re-made when the driver
-changes, and the aspect it is presented at follows the driver too. EGA asks for
+so the pixels stay sharp. Its backing size is the running driver's own -- 320x200
+for EGA and CGA, 640x200 for CGA's two-colour mode, 720x348 for Hercules --
+re-made when the driver changes, and the aspect it is presented at follows the driver too. EGA asks for
 square pixels, because the doubling that turns the 160-wide picture into 320 is
 already the correction. The engine composes into an offscreen
 `ImageData` buffer and blits once per frame; it never draws primitives with the
@@ -1036,7 +1036,10 @@ Rendering is decoupled from the cycle: the engine marks the frame dirty, and the
 next animation frame paints it. A cycle that changes nothing costs no drawing.
 
 The canvas is letterboxed to preserve aspect ratio, and the scale factor follows
-the window size.
+the space the page has left for it -- the stage's measured box in both
+dimensions, not the window's width. Whole multiples while it is being enlarged;
+an exact fit when the framebuffer is larger than the box, which only a phone
+reaches. *The page around it (M17)* says what that costs and what it decided.
 
 ## Application shell
 
@@ -1074,11 +1077,83 @@ Errors are reported rather than swallowed. A missing resource, a corrupt VOL
 header or an unimplemented opcode shows what failed and where, because during
 development those are the interesting events.
 
-A debug overlay, behind three function keys, exposes what would otherwise
-require a debugger: `F7` swaps the visual screen for the priority screen, `F8`
-dumps the engine's state -- the view table, the room and cycle counters, the
-variables and flags the game has touched, and the commands it reached that the
-engine cannot yet do -- and `F9` disassembles the current room's script.
+A developer panel, collapsed on the player's surface, exposes what would
+otherwise require a debugger: the priority screen in place of the visual one,
+the engine's state -- the view table, the room and cycle counters, the variables
+and flags the game has touched, and the commands it reached that the engine
+cannot yet do -- and a disassembly of the current room's script. Each is a
+button in the panel and a shortcut while it is open: `Alt+Shift+P`, `Alt+Shift+S`
+and `Alt+Shift+D`.
+
+Not the function keys M14 found them on. `F7` was the priority screen *and* the
+game's Restore, and one press did both. The shell asks `machine.keyBindings`
+before it claims any key now, so a key the scripts have bound stays the game's;
+that is a rule rather than a second list of keys, and it holds for the next game
+too.
+
+### The page around it (M17)
+
+Thin is not the same as unconsidered. Everything above says what the shell
+*holds*; this says what it is like to use, which sixteen milestones of engine
+work left where it started: one stylesheet of hard-coded colours, a column of
+centred paragraphs, and a canvas whose size was chosen from the window's width
+alone.
+
+Three properties, and none of them adds a control:
+
+```text
+modern       one set of colour and spacing tokens rather than hex literals
+             scattered through a style string; a light and a dark palette,
+             following the viewer's own setting; the game's own frame the
+             brightest thing on the page, and the shell around it quiet
+responsive   the canvas sized from the space that is actually free -- both
+             dimensions, not the width -- and the page reflowing to one
+             column, down to a phone's width
+easy         the player's four decisions (display, sound chip, sound, saving
+             to a file) reachable and labelled without reading a paragraph;
+             the game's keys shown as key caps rather than described in
+             prose; the developer panel present and never in the way
+```
+
+**The layout is three grid rows: a header, the stage, and one row of chrome.**
+The canvas is taken out of the stage's flow, which is the load-bearing rule of
+the page rather than a way of centring it: the canvas is sized from the stage,
+so the stage must not be sized from the canvas. In the flow the two chase each
+other and settle at whichever fixed point they reach first.
+
+The canvas keeps whole-number scaling and its driver's aspect -- that is what
+keeps a pixel a block and a dither the pattern the interpreter wrote -- and the
+multiple is chosen against the stage's height as well as its width, so no mode
+is ever taller than the window. Below 1x the rule gives way, because a
+framebuffer wider than the screen is worse than a resampled one: Hercules' 720
+pixels do not fit a phone at any whole multiple.
+
+That rule is also what decides how much chrome the page may have. Hercules at 2x
+is 696 pixels tall, so on a 1440x900 screen everything else has to fit in 204
+pixels or that mode is presented at half the size of the other two. It fits in
+195: the status line sits in the header rather than on a row of its own, the
+key caps share the controls' row, and the developer panel opens *over* the stage
+instead of below it -- which is right for its own reasons, since opening a
+debugger should not resize the thing being debugged. Where Hercules can reach a
+whole multiple the three modes are presented within 14% of each other's height;
+[plan.md](plan.md) records the band where it cannot, and why 1.5x is not the way
+out of it.
+
+**Responsive layout is not touch controls.** The non-goal above stands: the game
+is played on a keyboard, nothing here invents an on-screen d-pad or a virtual
+prompt, and below 640 pixels the page says plainly that the game is typed at
+rather than pretending otherwise. What responsiveness buys is that the page is
+not broken on the screen someone happens to open it on.
+
+Two constraints hold from M14. The page stays one page with no framework and no
+build flag -- the whole milestone cost about 3.5 kB gzipped -- and no setting is
+added that the game does not itself have: the palette follows
+`prefers-color-scheme` rather than becoming a fourth switch.
+
+One thing is owed to the keyboard and now paid. Every control hands focus
+straight back to the body so the game keeps the keys, which is hostile to
+whoever is tabbing; `:focus-visible` rings mean they can at least see where they
+are while they are there.
 
 ## Error handling
 
@@ -1121,7 +1196,7 @@ only the final blit needs a canvas.
 
 ## Milestones
 
-Each milestone ends with something observable, not just code. M0-M16 are done.
+Each milestone ends with something observable, not just code. M0-M17 are done.
 The numbering is the one [plan.md](plan.md)
 works to, and that document records what each one turned out to need --
 including where it contradicted what was written here first.
@@ -1215,6 +1290,19 @@ M16 CGA, as the original drew it
     stripes rather than a checkerboard, its costs re-measured at 11% of the
     game's boundaries against M12's 4%, and `Ctrl-R` putting the card into
     640x200 in two colours as it did on the original.
+
+M17 The page, designed
+    The shell's looks, which no milestone had touched: colour and spacing
+    tokens instead of literals, a layout that fits the window it is given
+    in both dimensions and reflows to one column when it must, and the
+    player's four choices legible at a glance. What it found under that
+    was the canvas sizing the container it was sized from, which is why
+    Hercules had been drawn at 1x on screens with room for 2x.
+    Ends with: the game unbroken from a phone's width to a wide desktop,
+    the canvas never taller than the window, the three display modes
+    within 14% of each other's height wherever Hercules can reach a whole
+    multiple, the palette following the viewer's light or dark setting,
+    and not one control added or removed.
 ```
 
 ```text
@@ -1223,6 +1311,7 @@ M1  complete    M5  complete    M9  complete     M13 complete
                                                  M14 complete
 M2  complete    M6  complete    M10 complete     M15 complete
 M3  complete    M7  complete    M11 complete     M16 complete
+                                                 M17 complete
 ```
 
 ## Later phases

@@ -3,7 +3,22 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Leisure Suit Larry 1 / web-agi</title>
+    <title>Leisure Suit Larry in the Land of the Lounge Lizards</title>
+    <meta
+      name="description"
+      content="Leisure Suit Larry 1 running in the browser on a Sierra AGI interpreter written from the original resource files."
+    />
+    <!-- The page's own colours, so the browser's chrome matches the shell
+         rather than sitting in white above a dark page. Both are the --bg
+         token in shell.ts; they are the one place it is spelled twice. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4efe4" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#14120f" />
+    <!-- Sixteen CGA-ish pixels of a monitor, inline so the page asks for no
+         second file. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%2314120f'/%3E%3Crect x='2' y='3' width='12' height='8' fill='%23e3b269'/%3E%3Crect x='3' y='4' width='10' height='6' fill='%230000aa'/%3E%3Crect x='4' y='8' width='8' height='1' fill='%2355ffff'/%3E%3Crect x='5' y='6' width='2' height='1' fill='%23ffffff'/%3E%3Crect x='9' y='6' width='2' height='1' fill='%23ffffff'/%3E%3Crect x='6' y='11' width='4' height='2' fill='%23e3b269'/%3E%3Crect x='4' y='13' width='8' height='1' fill='%23e3b269'/%3E%3C/svg%3E"
+    />
   </head>
   <body>
     <div id="app"></div>
