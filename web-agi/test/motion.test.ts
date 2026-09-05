@@ -356,13 +356,35 @@ test('an object that observes other objects cannot stand in the same place as on
   assert.equal(collides(m.viewTable, mover), false, 'until the mover ignores objects');
 });
 
-test('an object that ignores collisions still blocks another object that observes them', () => {
+test('an object that ignores collisions is not there to be collided with', () => {
   const m = walkable();
   const mover = standing(m, 0, 20, 100);
   const obstacle = standing(m, 1, 23, 100);
-  obstacle.ignoresObjects = true;
 
   assert.equal(collides(m.viewTable, mover), true);
+
+  // Both ways, and the room outside Lefty's restroom is what proves it: its
+  // script puts an object with this flag exactly where it then puts ego, so a
+  // one-directional reading traps the player where the original does not.
+  obstacle.ignoresObjects = true;
+  assert.equal(collides(m.viewTable, mover), false);
+});
+
+test('an object sharing a base row with an ignoring object can still walk away', () => {
+  // The restroom door, in the numbers the game uses: a 5-wide object at
+  // 105,123 and ego 7 wide at 100,123, so the spans overlap and the rows are
+  // equal in every direction ego can step.
+  const m = walkable();
+  const ego = standing(m, 0, 100, 123, blockView(7, 4));
+  const door = standing(m, 1, 105, 123, blockView(5, 4));
+  ego.previousY = ego.y;
+
+  // The spans really do overlap: without the flag this is a collision, and
+  // one no step can get out of, because every step keeps the rows equal.
+  assert.equal(collides(m.viewTable, ego), true);
+
+  door.ignoresObjects = true;
+  assert.equal(collides(m.viewTable, ego), false);
 });
 
 test('a moving object collides with a stopped object at its current base row', () => {

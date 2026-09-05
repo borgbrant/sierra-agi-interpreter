@@ -434,6 +434,19 @@ The engine restores what a sprite covered before the next cycle draws it, rather
 than redrawing the whole picture, matching the original's model of a static
 background with objects composited over it.
 
+Two objects that observe each other cannot occupy the same ground: they collide
+when their horizontal spans overlap and the mover lands on or crosses the
+other's base row. `ignore.objs` turns that off in *both* directions -- an object
+with the flag passes through others, and is not there for others to hit. The
+one-directional reading is the tempting one and it is wrong: the room outside
+Lefty's restroom draws a door as an object with the flag at 105,123 and then
+puts ego, seven pixels wide, at 100,123. The spans overlap and the rows are
+equal whichever way ego steps, so reading the flag one way leaves the player
+unable to move at all. Furniture that should stop a character is stopped by the
+picture's own control lines, which is how the original does it -- Lefty's
+jukebox has conditional-obstacle lines under it and ego walks into them, not
+into the object.
+
 Objects are drawn back to front by priority. Where two share a priority, the
 tie-break is that a *moving* object is drawn over a stopped one: the original
 keeps two sprite lists and blits the `stop.update`ed, scenery-like objects

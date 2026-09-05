@@ -187,17 +187,26 @@ export function fitsOnScreen(object: ViewObject, horizon: number): boolean {
 /**
  * Whether an object would land on another one.
  *
- * An object that ignores other objects may pass through them. Other objects'
- * own ignore flags do not make them intangible while they are standing still:
- * Lefty's jukebox is a stopped object with `ignore.objs`, but ego should still
- * hit it. Two objects collide when their horizontal spans overlap and the mover
- * lands on or crosses the other's current base row this cycle.
+ * `ignore.objs` works both ways: an object that ignores other objects may pass
+ * through them, *and* an object that ignores them is not there to be hit. The
+ * flag was read one-directionally until the restroom door proved it could not
+ * be -- see below. Two objects collide when their horizontal spans overlap and
+ * the mover lands on or crosses the other's current base row this cycle.
+ *
+ * The room outside Lefty's restroom is the case that settles it. Its script
+ * draws a 5x57 object with `ignore.objs` at 105,123 and then puts ego at
+ * 100,123 -- overlapping it, on the same base row. Ego is 7 wide, so every
+ * step keeps the spans overlapping and keeps the row the same, and a
+ * one-directional reading of the flag leaves the player unable to move in any
+ * direction for as long as they stay in the room. Sierra shipped that room, so
+ * the original cannot have been blocking there.
  */
 export function collides(table: ViewTable, object: ViewObject): boolean {
   if (object.ignoresObjects) return false;
 
   for (const other of table.visible()) {
     if (other === object) continue;
+    if (other.ignoresObjects) continue;
 
     const objectRight = object.x + Math.max(1, object.width);
     const otherRight = other.x + Math.max(1, other.width);

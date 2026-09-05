@@ -706,3 +706,35 @@ test('the scene animates on its own', () => {
 
   assert.notDeepEqual(renderer.display.pixels, first, 'something in the scene moved');
 });
+
+test('walking out of the restroom leaves the player able to walk', () => {
+  // The room outside Lefty's restroom draws a door as an object with
+  // `ignore.objs` at 105,123 and then puts ego at 100,123 -- overlapping it,
+  // on the same base row. While `collides` read that flag one-directionally,
+  // every direction was a collision with the door and the player could not
+  // move at all until they left the room, which they could only do by typing.
+  const player = new Player();
+  player.playOpening();
+
+  // Rooms change by handing logic 0 the next room, which is what every script
+  // in this game does; this is the shortest way to stand in the restroom.
+  player.machine.state.setVar(76, 13);
+  player.run(60);
+  assert.equal(player.room, 13, 'in the restroom');
+
+  player.type('open door');
+  player.run(30);
+  assert.equal(player.room, 14, 'out in the hallway');
+
+  const ego = player.machine.viewTable.ego;
+  const from = { x: ego.x, y: ego.y };
+
+  player.key('ArrowLeft');
+  player.run(25);
+
+  assert.notDeepEqual(
+    { x: ego.x, y: ego.y },
+    from,
+    `ego is stuck at ${from.x},${from.y}`,
+  );
+});

@@ -2642,11 +2642,23 @@ is the kind of thing keeping state in closures would have made easier.
 Two of the spec's four are answered above. These remain:
 
 - ~~Whether LSL1 needs a game-specific loader for interpreter quirks.~~
-  Answered: no. What it needed instead were three rules the documentation does
+  Answered: no. What it needed instead were four rules the documentation does
   not state — a control line is a gap in the depths rather than a depth, a
-  moving object draws over a stopped one at the same priority, and a script
-  spinning on `have.key` is waiting rather than looping — and all three belong
-  to the engine, not to this game.
+  moving object draws over a stopped one at the same priority, a script
+  spinning on `have.key` is waiting rather than looping, and `ignore.objs`
+  makes an object intangible as well as unblockable — and all four belong to
+  the engine, not to this game.
+
+  The fourth arrived last and after M16, reported as "you cannot move at all
+  after coming out of the restroom", and it is the clearest case any of them
+  made. The room outside draws a door as an object with `ignore.objs` at
+  105,123 and then puts ego, 7 wide, at 100,123: the spans overlap and the base
+  rows are equal in every direction ego can step, so a one-directional reading
+  of the flag stops the player dead until they type their way out. Sierra
+  shipped that room, which is the whole of the argument. What made the wrong
+  reading look right was Lefty's jukebox, and the jukebox turns out to be
+  defended by conditional-obstacle lines in the picture: ego stops at x=23
+  against the control line, not against the object, and does so either way.
 - ~~Whether the debug overlay ships in the production build.~~ Answered: it
   ships. The whole of `shell/debug.ts` plus the disassembler is about 1 KB
   gzipped, which is not worth a build flag and a second code path.
