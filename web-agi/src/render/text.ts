@@ -96,6 +96,36 @@ export const DEFAULT_TEXT_COLOUR = 0;
 export const DEFAULT_BACKGROUND_COLOUR = 15;
 
 /**
+ * White on black: what `set.text.attribute` holds before a script sets it.
+ *
+ * A different thing from the two above, and confusing them is what made King's
+ * Quest I's title screen wrong. A message *window* is black on white. The text
+ * *attribute* -- what `display` writes with, and what the menu bar and the
+ * inventory screen are drawn in -- starts as white on black.
+ *
+ * Two games say so. King's Quest I calls `set.text.attribute` exactly once in
+ * its ninety scripts, in logic 53, and its title screen runs long before that:
+ * the credits scroll is `display.v` with whatever the default is, over a scroll
+ * whose interior the picture paints black. Black on white put a white box over
+ * it.
+ *
+ * And Leisure Suit Larry shows what the value is rather than only that it is
+ * dark. Its status line is
+ *
+ * ```text
+ * set.text.attribute(0, 15)   black on white
+ * display(0, 20, 30)          the line
+ * set.text.attribute(15, 0)   back to normal
+ * ```
+ *
+ * -- and that third line is the idiom throughout both games: eight of LSL1's
+ * fourteen calls are (15, 0), each one restoring after a temporary colour. A
+ * game restores to the default, so the default is what they restore to.
+ */
+export const DEFAULT_ATTRIBUTE_FOREGROUND = 15;
+export const DEFAULT_ATTRIBUTE_BACKGROUND = 0;
+
+/**
  * The red AGI outlines a message window in.
  *
  * Not the text colour. The original draws the box in its background colour and
@@ -458,6 +488,23 @@ export class TextLayer {
 
   clear(): void {
     this.chars.fill(0);
+  }
+
+  /**
+   * Forget the cells in a band of rows.
+   *
+   * Different from {@link fillRows}, which writes spaces in a colour and so
+   * *paints*. This leaves nothing behind at all, which is what the picture
+   * appearing over a row of text does.
+   *
+   * @param from first row to forget, inclusive
+   * @param to   last row, inclusive
+   */
+  clearRows(from: number, to: number): void {
+    const first = Math.max(0, Math.min(from, to));
+    const last = Math.min(ROWS - 1, Math.max(from, to));
+    if (last < first) return;
+    this.chars.fill(0, TextLayer.index(0, first), TextLayer.index(0, last) + COLUMNS);
   }
 
   /**

@@ -65,7 +65,7 @@ export const OBJECTS: Record<string, Handler> = {
     on(n!, m, (o) => {
       if (!o.animated) return;
       o.drawn = true;
-      if (!o.fixedPriority) o.priority = priorityForRow(o.y);
+      if (!o.fixedPriority) o.priority = priorityForRow(o.y, m.priorityBase);
       o.repositioned = true;
     }),
 
@@ -176,7 +176,7 @@ export const OBJECTS: Record<string, Handler> = {
   'release.priority': (m, [n]) =>
     on(n!, m, (o) => {
       o.fixedPriority = false;
-      o.priority = priorityForRow(o.y);
+      o.priority = priorityForRow(o.y, m.priorityBase);
     }),
   'get.priority': (m, [n, v]) => on(n!, m, (o) => m.state.setVar(v!, o.priority)),
 
@@ -433,7 +433,7 @@ function addCel(
     { cel: frame, loop },
     x,
     y,
-    priority === 0 ? priorityForRow(y) : priority,
+    priority === 0 ? priorityForRow(y, m.priorityBase) : priority,
     margin,
     view,
     cel,

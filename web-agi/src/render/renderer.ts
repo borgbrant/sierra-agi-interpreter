@@ -9,7 +9,7 @@
  * Kept free of the DOM: the result is a byte buffer, so what the engine draws
  * can be asserted in a test. Only presenting it needs a canvas.
  */
-import { PICTURE_ROW } from '../engine/layout.ts';
+import { DEFAULT_PICTURE_ROW } from '../engine/layout.ts';
 import {
   createDriver,
   hasMonoVariant,
@@ -127,7 +127,7 @@ export class Renderer {
   compose(screens: Screens): void {
     const frame = new Frame();
     frame.fill(CHROME_COLOUR);
-    frame.picture(this.view === 'visual' ? screens.visual : screens.priority, PICTURE_ROW);
+    frame.picture(this.view === 'visual' ? screens.visual : screens.priority, DEFAULT_PICTURE_ROW);
     this.render(frame);
   }
 

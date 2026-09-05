@@ -31,6 +31,16 @@ export type GraphicsMode = DisplayMode;
 export interface Settings {
   graphics: GraphicsMode;
   sound: SoundChip;
+  /**
+   * Which of the bundled games to start, by its directory name.
+   *
+   * Empty until a game has been chosen, and emptied again by *Change game*.
+   * Unlike the two above it, this one is not checked here: which ids exist is
+   * what `games/index.json` says, and this module has never heard of it. A
+   * remembered id that is no longer bundled sends the player back to the
+   * picker, which is the same as never having chosen.
+   */
+  game: string;
 }
 
 const KEY = 'web-agi:settings';
@@ -51,12 +61,12 @@ const KEY = 'web-agi:settings';
  * so a browser that remembers CGA starts on CGA. Clearing `web-agi:settings`
  * from the browser's storage is what puts these back.
  */
-export const DEFAULT_SETTINGS: Settings = { graphics: 'ega', sound: 'pcjr' };
+export const DEFAULT_SETTINGS: Settings = { graphics: 'ega', sound: 'pcjr', game: '' };
 
-// Three, and a stored `pcjr` from before the PCjr was dropped falls back to
+// Four, and a stored `pcjr` from before the PCjr was dropped falls back to
 // the default like any other value this list does not hold. `pick` is what
 // makes removing a mode safe rather than a reason to migrate storage.
-const GRAPHICS: GraphicsMode[] = ['cga', 'ega', 'hercules'];
+const GRAPHICS: GraphicsMode[] = ['cga', 'composite', 'ega', 'hercules'];
 const SOUND: SoundChip[] = ['speaker', 'pcjr'];
 
 /** Read the settings back, falling back to the defaults for anything odd. */
@@ -71,6 +81,7 @@ export function loadSettings(storage: KeyValueStore | null): Settings {
       // graphics mode that does not exist would be an engine that cannot draw.
       graphics: pick(GRAPHICS, stored.graphics, DEFAULT_SETTINGS.graphics),
       sound: pick(SOUND, stored.sound, DEFAULT_SETTINGS.sound),
+      game: typeof stored.game === 'string' ? stored.game : DEFAULT_SETTINGS.game,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

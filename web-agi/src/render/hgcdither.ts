@@ -83,7 +83,14 @@
  * this game's -- used when the file is absent, replaced by it when it is there.
  */
 
-/** The table's place in `AGIDATA.OVL`, and its size. */
+/**
+ * The table's place in Leisure Suit Larry's `AGIDATA.OVL`, and its size.
+ *
+ * One copy's offset, not the table's address: King's Quest I's 2.917 keeps the
+ * same 128 bytes 436 higher, and what lies here in *that* file is a printf
+ * format string. `render/agidata.ts` finds the table rather than assuming it,
+ * and this is where the search lands for the bundled game.
+ */
 export const HGC_DITHER_OFFSET = 0x1bea;
 export const HGC_DITHER_BYTES = 128;
 
@@ -129,16 +136,20 @@ export const HGC_DITHER: HgcDither = [
 ];
 
 /**
- * The table out of an `AGIDATA.OVL`.
+ * The table out of an `AGIDATA.OVL`, from where it was found.
  *
- * The file is 7680 bytes of interpreter data and this reads 128 of them. There
- * is nothing in the file that identifies the table, so the only check possible
- * is that the file is long enough to hold it -- which is why the shipped
- * default exists, and why a table that reads back absurd would be a wrong
- * `AGIDATA.OVL` rather than a wrong offset.
+ * Nothing inside the 128 bytes identifies them -- the table begins with eight
+ * zeros and ends with eight 0xffs, and so do the bytes on either side of it, so
+ * its own shape matches at four consecutive offsets. It is `agidata.ts` that
+ * locates it, anchored on the CGA tables, and this reads it from there.
+ *
+ * @param at where the table starts; the bundled game's offset by default
  */
-export function decodeHgcDither(bytes: Uint8Array<ArrayBufferLike>): HgcDither {
-  const end = HGC_DITHER_OFFSET + HGC_DITHER_BYTES;
+export function decodeHgcDither(
+  bytes: Uint8Array<ArrayBufferLike>,
+  at: number = HGC_DITHER_OFFSET,
+): HgcDither {
+  const end = at + HGC_DITHER_BYTES;
   if (bytes.length < end) {
     throw new HgcDitherError(
       `AGIDATA.OVL is ${bytes.length} bytes; the dither table ends at ${end}`,
@@ -147,8 +158,8 @@ export function decodeHgcDither(bytes: Uint8Array<ArrayBufferLike>): HgcDither {
 
   const table: number[][] = [];
   for (let colour = 0; colour < 16; colour++) {
-    const at = HGC_DITHER_OFFSET + colour * HGC_CELL_HEIGHT;
-    table.push([...bytes.subarray(at, at + HGC_CELL_HEIGHT)]);
+    const from = at + colour * HGC_CELL_HEIGHT;
+    table.push([...bytes.subarray(from, from + HGC_CELL_HEIGHT)]);
   }
   return table;
 }

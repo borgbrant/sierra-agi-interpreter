@@ -7,14 +7,14 @@ import { FLAG, VAR } from './engine/state.ts';
 import { bindKeyboard } from './input/keyboard.ts';
 import { present } from './engine/present.ts';
 import { Renderer } from './render/renderer.ts';
-import { decodeCgaTables, type CgaTables } from './render/cgatables.ts';
-import { decodeHgcDither, type HgcDither } from './render/hgcdither.ts';
+import { readInterpreterTables } from './render/agidata.ts';
+import { readInterpreterVersion } from './resources/interpreter.ts';
 import { decodeHgcFont, type HgcFont } from './render/hgcfont.ts';
 import { fingerprint } from './engine/snapshot.ts';
 import { ResourceManager } from './resources/manager.ts';
 import { browserStorage, exportSaves, importSaves, SaveStore } from './storage/saves.ts';
 import { parseObjectFile } from './resources/objects.ts';
-import { BundledSource } from './resources/source.ts';
+import { BundledSource, listGames } from './resources/source.ts';
 import { formatSummary, summariseGame } from './resources/summary.ts';
 import { Vocabulary } from './resources/words.ts';
 import { CanvasView } from './shell/canvas.ts';
@@ -34,12 +34,36 @@ if (!root) throw new Error('missing #app element');
 const shell = mountShell(root);
 
 try {
-  // What loading is doing, said in the stage the canvas will take. Four
-  // megabytes of resources and a first cycle is long enough that a page saying
-  // nothing looks like a page that has failed.
+  // Saved games live in the browser, keyed by which game they belong to. A
+  // browser that refuses storage leaves the store empty rather than absent, so
+  // the save screen can say so instead of the command silently doing nothing.
+  const storage = browserStorage();
+
+  /**
+   * What the player has chosen, as opposed to what the game asks for.
+   *
+   * Read before anything is loaded, because *which game* is one of those
+   * choices now: two are bundled, and the four megabytes belong to whichever
+   * is picked.
+   */
+  const settings = loadSettings(storage);
+
+  shell.setLoading('looking for the bundled games');
+  const games = await listGames();
+
+  // A remembered choice starts straight away; anything else asks. There is no
+  // default game -- picking one for the player would be picking wrong for
+  // whoever wanted the other -- so the only thing that skips the question is a
+  // build with a single game in it.
+  const remembered = games.find((game) => game.id === settings.game);
+  const chosen = remembered ?? (games.length === 1 ? games[0]! : await shell.chooseGame(games));
+  settings.game = chosen.id;
+  saveSettings(storage, settings);
+  shell.setTitle(chosen.title);
+
   shell.setLoading('reading the game directory');
 
-  const source = await BundledSource.load();
+  const source = await BundledSource.forGame(chosen.id);
   const resources = await ResourceManager.open(source);
   shell.setLoading('decoding resources');
   await resources.preload();
@@ -65,37 +89,33 @@ try {
     shell.showError('HGC_FONT could not be read; Hercules will draw in the engine\'s font', cause);
   }
 
-  // And its dither table, which is 128 bytes inside the interpreter's own data
-  // file. Optional for the same reason and with a smaller consequence: absent,
-  // the table LSL1's copy of AGIDATA.OVL holds is used, which is the same
-  // table for this game and possibly not for another.
   // And the dither tables, which are interpreter data rather than game data:
-  // 128 bytes at 0x1bea are Hercules', and three tables below them are CGA's.
-  // Optional for the same reason and with a smaller consequence: absent, the
-  // tables LSL1's own copy of AGIDATA.OVL holds are used, which are the right
-  // tables for this game and possibly not for another.
-  let herculesDither: HgcDither | undefined;
-  let cgaTables: CgaTables | undefined;
-  try {
-    const bytes = await source.read('AGIDATA.OVL');
-    if (bytes) {
-      herculesDither = decodeHgcDither(bytes);
-      cgaTables = decodeCgaTables(bytes);
-    }
-  } catch (cause) {
-    shell.showError('AGIDATA.OVL could not be read; the bundled dither tables will be used', cause);
-  }
+  // 242 bytes of AGIDATA.OVL are one block holding CGA's three tables and
+  // Hercules', and where that block sits depends on which interpreter shipped
+  // with the game. It is found rather than assumed -- see render/agidata.ts,
+  // and the King's Quest copy whose 0x1bea is a printf string. A file this
+  // cannot read costs the game the tables and nothing else.
+  const agiData = (await source.read('AGIDATA.OVL')) ?? undefined;
+  const interpreterData = readInterpreterTables(agiData);
+  const { cga: cgaTables, hercules: herculesDither } = interpreterData;
+
+  // And the version, from the same file, because how many commands the reader
+  // accepts is the interpreter's business rather than this engine's.
+  const interpreter = readInterpreterVersion(agiData);
   const vocabulary = Vocabulary.parse(wordBytes);
   const summary = summariseGame(resources, objects, vocabulary);
 
   const sound = new SoundPlayer();
-  const machine = new Machine({ resources, objects, vocabulary, sound });
+  const machine = new Machine({
+    resources,
+    objects,
+    vocabulary,
+    sound,
+    commandCount: interpreter.commandCount,
+  });
   machine.setHandlers(buildHandlers());
 
-  // Saved games live in the browser, keyed by which game they belong to. A
-  // browser that refuses storage leaves the store empty rather than absent, so
-  // the save screen can say so instead of the command silently doing nothing.
-  const storage = browserStorage();
+  // Keyed by which game they belong to, so two games' saves cannot collide.
   machine.saves = new SaveStore(fingerprint(machine), storage);
 
   const cycle = new Cycle(machine);
@@ -105,14 +125,6 @@ try {
   /** Say what the shell just did, without overwriting it with engine telemetry. */
   const say = (text: string) => shell.setStatus(text);
 
-  /**
-   * What the player has chosen, as opposed to what the game asks for.
-   *
-   * Read back from the browser before the game starts, so the machine the game
-   * runs on is settled before its first cycle -- the same reason the audio
-   * context is waited for.
-   */
-  const settings = loadSettings(storage);
   // Both halves of the choice, before the first cycle: the scripts read the
   // monitor and computer types during start-up, and a game told afterwards has
   // already built its menus and bound its keys for the wrong machine.
@@ -218,6 +230,13 @@ try {
   shell.setLog([
     ...formatSummary(summary),
     '',
+    interpreter.read
+      ? `AGI ${interpreter.version}, ${interpreter.commandCount} commands`
+      : `AGI ${interpreter.version} assumed — ${interpreter.why}`,
+    interpreterData.sites
+      ? `dither tables read from AGIDATA.OVL at 0x${interpreterData.sites.fill.toString(16)}`
+      : `dither tables: the engine's own — ${interpreterData.why}`,
+    '',
     'Developer tools: open this panel, or use Alt+Shift+P/S/D while it is open.',
   ]);
 
@@ -267,6 +286,24 @@ try {
     button.addEventListener('click', () => button.blur());
     shell.saveTools.append(button);
   };
+
+  /**
+   * Back to the picker.
+   *
+   * A reload rather than a swap: a running game owns the machine, the view
+   * table, the sound and the renderer, and tearing all of that down safely is
+   * a milestone rather than a button. Forgetting the choice and starting again
+   * is the same thing from the player's side, and it cannot leave a corner of
+   * one game's state inside another's.
+   */
+  const changeGame = document.createElement('button');
+  changeGame.type = 'button';
+  changeGame.textContent = 'Change game';
+  changeGame.addEventListener('click', () => {
+    saveSettings(storage, { ...settings, game: '' });
+    location.reload();
+  });
+  shell.gameTools.append(changeGame);
 
   addTool('Export saves', () => {
     const saves = machine.saves;

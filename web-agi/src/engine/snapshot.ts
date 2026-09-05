@@ -27,6 +27,7 @@
 import { Screens } from '../render/screens.ts';
 import type { AddedCel } from './animate.ts';
 import { DEFAULT_LAYOUT, type ScreenLayout } from './layout.ts';
+import { DEFAULT_PRIORITY_BASE } from './motion.ts';
 import type { Machine } from './machine.ts';
 
 /**
@@ -129,6 +130,8 @@ export interface Snapshot {
   scenery: AddedCel[];
 
   horizon: number;
+  /** The row the priority bands start at; `set.pri.base` moves it. */
+  priorityBase: number;
   block: { active: boolean; x1: number; y1: number; x2: number; y2: number };
   playerControl: boolean;
   inputAccepted: boolean;
@@ -210,6 +213,7 @@ export function captureSnapshot(machine: Machine): Snapshot {
     scenery: machine.scenery.map((cel) => ({ ...cel })),
 
     horizon: machine.horizon,
+    priorityBase: machine.priorityBase,
     block: { ...machine.block },
     playerControl: machine.playerControl,
     inputAccepted: machine.inputAccepted,
@@ -254,6 +258,8 @@ export function applySnapshot(machine: Machine, snapshot: Snapshot): void {
   machine.inventory.rooms.set(snapshot.inventory);
 
   machine.horizon = snapshot.horizon;
+  // A save from before M18 has no base; the default is what it was played in.
+  machine.priorityBase = snapshot.priorityBase ?? DEFAULT_PRIORITY_BASE;
   machine.block = { ...snapshot.block };
   machine.playerControl = snapshot.playerControl;
   machine.inputAccepted = snapshot.inputAccepted;

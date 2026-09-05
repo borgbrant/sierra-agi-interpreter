@@ -17,7 +17,7 @@ import { test } from 'node:test';
 
 import { EGA_PALETTE } from 'agi-extract/pic';
 
-import { PICTURE_ROW } from '../src/engine/layout.ts';
+import { DEFAULT_PICTURE_ROW } from '../src/engine/layout.ts';
 import { PALETTE_SIZE } from '../src/render/display.ts';
 import {
   CGA_COLLISIONS,
@@ -260,7 +260,7 @@ function frameOf(visual: Screens['visual']): Frame {
 
   return new Frame()
     .fill(0)
-    .picture(visual, PICTURE_ROW)
+    .picture(visual, DEFAULT_PICTURE_ROW)
     .cells(cells)
     .text(']', 0, 23, 15, 0)
     .window(layOutWindow('a message over the scene', { row: 14 }));
@@ -290,13 +290,13 @@ test('the dither is stripes, not a checkerboard', () => {
   // one-pixel stripes, identical on every row.
   const driver = new CgaDriver();
   const flat = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(11); // light cyan: 1,3
-  driver.draw(new Frame().fill(0).picture(flat, PICTURE_ROW));
+  driver.draw(new Frame().fill(0).picture(flat, DEFAULT_PICTURE_ROW));
 
   const [a, b] = CGA_DITHER[11]!;
   assert.notEqual(a, b, 'light cyan is a mixed pair, or this proves nothing');
 
   const at = (x: number, y: number) => driver.display.pixels[y * driver.display.width + x]!;
-  const top = PICTURE_ROW * 8;
+  const top = DEFAULT_PICTURE_ROW * 8;
 
   for (const row of [top, top + 1, top + 2]) {
     assert.equal(at(0, row), a, `row ${row} starts on the same colour`);
@@ -411,11 +411,11 @@ test('a wrong AGIDATA.OVL is refused rather than half read', () => {
 
 test('the two-colour mode draws every colour at its own density', () => {
   const driver = new CgaMonoDriver();
-  const top = PICTURE_ROW * 8;
+  const top = DEFAULT_PICTURE_ROW * 8;
 
   for (let colour = 0; colour < PALETTE_SIZE; colour++) {
     const flat = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(colour);
-    driver.draw(new Frame().fill(0).picture(flat, PICTURE_ROW));
+    driver.draw(new Frame().fill(0).picture(flat, DEFAULT_PICTURE_ROW));
 
     let lit = 0;
     for (let x = 0; x < CGA_MONO_PIXELS; x++) {
@@ -428,9 +428,9 @@ test('the two-colour mode draws every colour at its own density', () => {
 test('the two-colour mode has no row phase either', () => {
   const driver = new CgaMonoDriver();
   const flat = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(9); // light blue: .###
-  driver.draw(new Frame().fill(0).picture(flat, PICTURE_ROW));
+  driver.draw(new Frame().fill(0).picture(flat, DEFAULT_PICTURE_ROW));
 
-  const top = PICTURE_ROW * 8;
+  const top = DEFAULT_PICTURE_ROW * 8;
   const row = (y: number) => [0, 1, 2, 3].map((x) =>
     driver.display.pixels[y * driver.display.width + x]!);
 
@@ -472,7 +472,7 @@ test('every picture in the game renders in the two colours it has', async () => 
 
   for (const id of manager.ids('pic')) {
     const screens = Screens.fromPicture(await manager.load('pic', id));
-    driver.draw(new Frame().fill(0).picture(screens.visual, PICTURE_ROW));
+    driver.draw(new Frame().fill(0).picture(screens.visual, DEFAULT_PICTURE_ROW));
 
     for (const pixel of driver.display.pixels) {
       assert.ok(pixel <= 1, `pic ${id} drew ${pixel}`);
@@ -486,7 +486,7 @@ test('the two-colour mode keeps a row for the command line', () => {
   // which is why the box is keyed on the screen's geometry rather than on the
   // monitor variable. See `hasInputRow`.
   const driver = new CgaMonoDriver();
-  const picture = PICTURE_ROW * driver.cell.height + PICTURE_HEIGHT;
+  const picture = DEFAULT_PICTURE_ROW * driver.cell.height + PICTURE_HEIGHT;
 
   assert.equal(picture, 176);
   assert.ok(picture <= 23 * driver.cell.height, 'the input row is below the picture');

@@ -138,6 +138,10 @@ export const COMPUTER = {
 export function monitorTypeFor(mode: DisplayMode): number {
   switch (mode) {
     case 'cga':
+    // A composite monitor is a CGA's monitor, and this is the branch that
+    // matters: the CGA value is what makes the game offer "Graphics Mode
+    // <Ctrl-R>", which is the menu item a composite screen exists for.
+    case 'composite':
       return MONITOR.CGA;
     case 'hercules':
       return MONITOR.MONO;

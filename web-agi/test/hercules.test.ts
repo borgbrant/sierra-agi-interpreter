@@ -22,7 +22,7 @@ import type { SoundChip } from '../src/audio/output.ts';
 import { buildHandlers } from '../src/engine/commands/index.ts';
 import { Cycle } from '../src/engine/cycle.ts';
 import { MONITOR } from '../src/engine/hardware.ts';
-import { PICTURE_ROW } from '../src/engine/layout.ts';
+import { DEFAULT_PICTURE_ROW } from '../src/engine/layout.ts';
 import { CommandLine, NumberQuestion } from '../src/engine/interaction.ts';
 import { Machine } from '../src/engine/machine.ts';
 import { enterRoom } from '../src/engine/room.ts';
@@ -62,8 +62,8 @@ import { COLUMNS, ROWS } from '../src/render/text.ts';
 import { ResourceManager } from '../src/resources/manager.ts';
 import { parseObjectFile } from '../src/resources/objects.ts';
 import { Vocabulary } from '../src/resources/words.ts';
-import { DiskSource, GAME_DIR } from './helpers/disk-source.ts';
-import { BRIGHTNESS, CAPTURES, CAPTURE_DIR, ENOUGH, FIT } from './helpers/hgc-reference.ts';
+import { DiskSource } from './helpers/disk-source.ts';
+import { BRIGHTNESS, CAPTURES, CAPTURES_AT, ENOUGH, FIT } from './helpers/hgc-reference.ts';
 
 const source = await DiskSource.open();
 const resources = await ResourceManager.open(source);
@@ -123,12 +123,12 @@ test('the picture reaches the bottom of the screen, with no dead band', () => {
   assert.equal(driver.pictureHeight, PICTURE_HEIGHT * HGC_PIXEL_HEIGHT);
   assert.equal(driver.pictureHeight, 336);
   assert.equal(HERCULES_CELL.height, 14, '336 over 24 rows');
-  assert.equal(PICTURE_ROW * HERCULES_CELL.height + driver.pictureHeight, 350);
+  assert.equal(DEFAULT_PICTURE_ROW * HERCULES_CELL.height + driver.pictureHeight, 350);
   assert.ok(350 - HERCULES_HEIGHT <= 2, 'the last two pixels fall off a 348-row card');
 
   // Lit to the last row, so nothing is left over for a band.
   const screen = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(15);
-  driver.draw(new Frame().fill(0).picture(screen, PICTURE_ROW));
+  driver.draw(new Frame().fill(0).picture(screen, DEFAULT_PICTURE_ROW));
 
   const last = (HERCULES_HEIGHT - 1) * HERCULES_WIDTH + driver.pictureLeft;
   assert.equal(driver.display.pixels[last], 1, 'the very last picture row is drawn');
@@ -166,7 +166,7 @@ test('the rows the game writes its bottom band on have scene behind them', () =>
   // emptied cells instead would put the band on the scene.
   const driver = new HerculesDriver();
   const screen = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(15);
-  driver.draw(new Frame().fill(0).picture(screen, PICTURE_ROW));
+  driver.draw(new Frame().fill(0).picture(screen, DEFAULT_PICTURE_ROW));
 
   for (let row = 21; row < ROWS; row++) {
     const y = row * HERCULES_CELL.height;
@@ -325,11 +325,11 @@ test('light grey is a checkerboard, which is what a threshold cannot see', () =>
 
 test('a region of one colour comes out at the density the table asks for', () => {
   const driver = new HerculesDriver();
-  const top = PICTURE_ROW * HERCULES_CELL.height;
+  const top = DEFAULT_PICTURE_ROW * HERCULES_CELL.height;
 
   for (let colour = 0; colour < PALETTE_SIZE; colour++) {
     const screen = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(colour);
-    driver.draw(new Frame().fill(0).picture(screen, PICTURE_ROW));
+    driver.draw(new Frame().fill(0).picture(screen, DEFAULT_PICTURE_ROW));
 
     let count = 0;
     for (let y = 0; y < HGC_CELL_HEIGHT; y++) {
@@ -347,10 +347,10 @@ test('the driver draws through the table it was given', () => {
   // quietly hard-wired into the blit.
   const inverted = HGC_DITHER.map((rows) => rows.map((row) => ~row & 0xff));
   const driver = new HerculesDriver(undefined, inverted);
-  const top = PICTURE_ROW * HERCULES_CELL.height;
+  const top = DEFAULT_PICTURE_ROW * HERCULES_CELL.height;
 
   const screen = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(7);
-  driver.draw(new Frame().fill(0).picture(screen, PICTURE_ROW));
+  driver.draw(new Frame().fill(0).picture(screen, DEFAULT_PICTURE_ROW));
 
   const at = (x: number, y: number) =>
     driver.display.pixels[(top + y) * HERCULES_WIDTH + driver.pictureLeft + x]!;
@@ -375,15 +375,15 @@ test('no two colours a level apart share a weave', () => {
 test('black is never lit and white always is', () => {
   const driver = new HerculesDriver();
   const black = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(0);
-  driver.draw(new Frame().fill(0).picture(black, PICTURE_ROW));
+  driver.draw(new Frame().fill(0).picture(black, DEFAULT_PICTURE_ROW));
   assert.ok(driver.display.pixels.every((pixel) => pixel === 0), 'nothing is lit');
 
   const white = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(15);
-  driver.draw(new Frame().fill(0).picture(white, PICTURE_ROW));
+  driver.draw(new Frame().fill(0).picture(white, DEFAULT_PICTURE_ROW));
 
   // Every pixel of the picture area, and none of the margins.
   const at = (x: number, y: number) => driver.display.pixels[y * HERCULES_WIDTH + x]!;
-  const top = PICTURE_ROW * HERCULES_CELL.height;
+  const top = DEFAULT_PICTURE_ROW * HERCULES_CELL.height;
   assert.equal(at(driver.pictureLeft, top), 1);
   assert.equal(at(driver.pictureLeft + 639, top), 1);
   assert.equal(at(0, top), 0, 'the margin stays unlit');
@@ -417,7 +417,7 @@ test('text takes the solid side of a dithered colour', () => {
  * colour's regions survives, and the check is that it is a straight line in the
  * table's densities.
  */
-const captureDir = resolve(GAME_DIR, '..', '..', CAPTURE_DIR);
+const captureDir = CAPTURES_AT;
 const haveCaptures = existsSync(captureDir);
 
 /** AGI pixels whose four neighbours share their colour. */
@@ -580,7 +580,7 @@ test('every picture in the game renders in two colours', async () => {
 
   for (const id of resources.ids('pic')) {
     const screens = Screens.fromPicture(await resources.load('pic', id));
-    driver.draw(new Frame().fill(0).picture(screens.visual, PICTURE_ROW));
+    driver.draw(new Frame().fill(0).picture(screens.visual, DEFAULT_PICTURE_ROW));
 
     for (const pixel of driver.display.pixels) {
       assert.ok(pixel <= 1, `pic ${id} drew ${pixel}`);
@@ -824,7 +824,7 @@ test('Hercules is the driver for the mode, and EGA is untouched', async () => {
 
   const id = resources.ids('pic')[0]!;
   const screens = Screens.fromPicture(await resources.load('pic', id));
-  const frame = new Frame().fill(0).picture(screens.visual, PICTURE_ROW);
+  const frame = new Frame().fill(0).picture(screens.visual, DEFAULT_PICTURE_ROW);
 
   const ega = new EgaDriver();
   ega.draw(frame);

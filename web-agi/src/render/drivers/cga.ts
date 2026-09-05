@@ -79,7 +79,6 @@ import type { Frame } from '../frame.ts';
 import { PICTURE_HEIGHT, PICTURE_WIDTH } from '../screens.ts';
 import { TRANSPARENT, type Cel } from '../sprite.ts';
 import { clearRows, drawText, drawWindow, IBM_CELL } from '../text.ts';
-import { PICTURE_ROW } from '../../engine/layout.ts';
 import type { DisplayDriver, DisplayMode } from './driver.ts';
 
 /**
@@ -285,7 +284,7 @@ export class CgaDriver implements DisplayDriver {
           break;
 
         case 'cel':
-          this.#drawCel(layer.cel, PICTURE_ROW * IBM_CELL.height + layer.top);
+          this.#drawCel(layer.cel, layer.row * IBM_CELL.height + layer.top);
           break;
 
         case 'cells':

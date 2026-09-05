@@ -220,18 +220,29 @@ export const ACTIONS: readonly Command[] = [
   { name: 'div.n', args: 2 },
   { name: 'div.v', args: 2 },
   { name: 'close.window', args: 0 },
-  { name: 'unknown170', args: 1 },
-  { name: 'unknown171', args: 0 },
-  { name: 'unknown172', args: 0 },
-  { name: 'unknown173', args: 0 },
-  { name: 'unknown174', args: 1 },
-  { name: 'unknown175', args: 1 },
-  { name: 'unknown176', args: 0 },
-  { name: 'unknown177', args: 1 },
-  { name: 'unknown178', args: 0 },
-  { name: 'unknown179', args: 4 },
-  { name: 'unknown180', args: 2 },
-  { name: 'unknown181', args: 0 },];
+  // The twelve above 2.440's count, named in M18. Neither game here can reach
+  // them -- Larry's interpreter defines 170 commands and King's Quest I's 173,
+  // and the reader refuses anything above its own count -- so the names come
+  // from the AGI specification rather than from a script that uses them.
+  //
+  // What makes them safe to write down is that they were already here as
+  // `unknownNNN` *with argument counts*, measured when the table was built, and
+  // the specification's list agrees with all twelve in order: 1, 0, 0, 0, 1, 1,
+  // 0, 1, 0, 4, 2, 0. Twelve agreements in a row is not a coincidence, and a
+  // wrong name on a command no reachable script calls costs a disassembly
+  // listing rather than a game.
+  { name: 'set.simple', args: 1 },
+  { name: 'push.script', args: 0 },
+  { name: 'pop.script', args: 0 },
+  { name: 'hold.key', args: 0 },
+  { name: 'set.pri.base', args: 1 },
+  { name: 'discard.sound', args: 1 },
+  { name: 'hide.mouse', args: 0 },
+  { name: 'allow.menu', args: 1 },
+  { name: 'show.mouse', args: 0 },
+  { name: 'fence.mouse', args: 4 },
+  { name: 'mouse.posn', args: 2 },
+  { name: 'release.key', args: 0 },];
 
 /** Test commands, used only inside if-conditions. Indexed by opcode. */
 export const TESTS: readonly (Command | undefined)[] = [

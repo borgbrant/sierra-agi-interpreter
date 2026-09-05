@@ -9,6 +9,7 @@
  * itself -- scripts do `assignn(202, 2)` then `load.pic(202)`.
  */
 import { Screens } from '../../render/screens.ts';
+import { PICTURE_ROWS, pictureRow } from '../layout.ts';
 import type { Handler } from '../machine.ts';
 
 export const GRAPHICS: Record<string, Handler> = {
@@ -46,16 +47,21 @@ export const GRAPHICS: Record<string, Handler> = {
     m.screens.copyFrom(m.background);
     m.savedAreas.length = 0;
     m.pictureShown = true;
-    // And nothing of the last room's text is left on it. AGI has one
-    // framebuffer, so publishing the picture writes over whatever was there --
-    // captions, and the black band a script paints to put them on. Without
-    // this the band survives every room the player walks into, which no
-    // photograph of the real thing shows.
+    // And nothing of the last room's text is left where the picture lands. AGI
+    // has one framebuffer, so publishing the picture writes over whatever was
+    // there -- captions, and the black band a script paints to put them on.
+    // Without this the band survives every room the player walks into, which
+    // no photograph of the real thing shows.
     //
-    // Safe as well as faithful, and it was checked rather than assumed: no
-    // script in the game writes with `display` and then shows the picture, so
-    // nothing it meant to keep is thrown away here.
-    m.textLayer.clear();
+    // *Where the picture lands*, and not a row further, which is the part this
+    // originally got wrong: it cleared all twenty-five rows. Larry never
+    // noticed, because it writes nothing with `display` before showing a
+    // picture -- which was checked, and was one game's answer. King's Quest I
+    // opens by displaying its copyright and "Press any key to continue" on
+    // rows 22 and 24, *then* calling show.pic, and both lines vanished. They
+    // are below the picture; a blit of the picture area cannot reach them.
+    const top = pictureRow(m.layout);
+    m.textLayer.clearRows(top, top + PICTURE_ROWS - 1);
   },
 
   // A debugging command in the original. The engine offers the same view

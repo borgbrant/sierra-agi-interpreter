@@ -4,12 +4,20 @@ import { fileURLToPath } from 'node:url';
 
 import type { ResourceSource } from '../../src/resources/source.ts';
 
+/**
+ * The bundled copy of the game every other test runs against.
+ *
+ * `public/games/<id>` since M18's picker: the app serves a directory per game
+ * and chooses between them, and Larry is the one these tests mean when they
+ * say "the game".
+ */
 export const GAME_DIR = resolve(
   dirname(fileURLToPath(import.meta.url)),
   '..',
   '..',
   'public',
-  'game',
+  'games',
+  'lsl1',
 );
 
 /**

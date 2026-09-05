@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { buildHandlers } from '../src/engine/commands/index.ts';
+import { ACTIONS } from '../src/logic/opcodes.ts';
 import { Cycle } from '../src/engine/cycle.ts';
 import {
   MessageWindow,
@@ -380,4 +381,58 @@ test('nothing runs while the game waits, and it picks up where it left off', () 
 
   m.dismissPending();
   assert.equal(cycle.runOnce(), true, 'and it carries on afterwards');
+});
+
+test('showing the picture clears the text under it, and only that', () => {
+  // AGI has one framebuffer, so publishing the picture writes over whatever
+  // was on it -- but only where the picture lands. The rows above and below it
+  // are not in the blit's way, and a game may write there before showing the
+  // picture and expect the text to stay.
+  //
+  // King's Quest I is what proved the difference. Its title screen displays
+  // its copyright on row 22 and "Press any key to continue." on row 24, and
+  // *then* calls show.pic; clearing all twenty-five rows threw both away.
+  // Larry never showed it -- it writes nothing with display before showing a
+  // picture -- which is exactly the shape of assumption a second game finds.
+  const m = machine();
+  const handlers = buildHandlers();
+  const showPic = ACTIONS.findIndex((action) => action.name === 'show.pic');
+
+  m.layout = { minPrintRow: 1, inputRow: 23, statusRow: 0 };
+  m.textLayer.write('status', 0, 0, 15, 0);
+  m.textLayer.write('caption', 0, 10, 15, 0);
+  m.textLayer.write('copyright', 0, 22, 15, 0);
+
+  handlers[showPic]!(m, []);
+
+  const textAt = (row: number) =>
+    [...m.textLayer.chars.subarray(row * 40, row * 40 + 40)]
+      .map((code) => (code ? String.fromCharCode(code) : ''))
+      .join('');
+
+  assert.equal(textAt(10), '', 'the caption was under the picture');
+  assert.equal(textAt(0), 'status', 'the status line was above it');
+  assert.equal(textAt(22), 'copyright', 'and this was below it');
+});
+
+test('and it follows the picture when the game moves it', () => {
+  // The play window at the top, as King's Quest I's title screen asks for:
+  // the picture now covers rows 0 to 20, and row 21 is the first row below it.
+  const m = machine();
+  const handlers = buildHandlers();
+  const showPic = ACTIONS.findIndex((action) => action.name === 'show.pic');
+
+  m.layout = { minPrintRow: 0, inputRow: 21, statusRow: 0 };
+  m.textLayer.write('inside', 0, 20, 15, 0);
+  m.textLayer.write('below', 0, 21, 15, 0);
+
+  handlers[showPic]!(m, []);
+
+  const textAt = (row: number) =>
+    [...m.textLayer.chars.subarray(row * 40, row * 40 + 40)]
+      .map((code) => (code ? String.fromCharCode(code) : ''))
+      .join('');
+
+  assert.equal(textAt(20), '', 'row 20 is the picture\u2019s last row');
+  assert.equal(textAt(21), 'below');
 });

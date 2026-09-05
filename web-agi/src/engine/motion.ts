@@ -66,18 +66,41 @@ const LOOP_FOR_DIRECTION_2 = [4, 4, 1, 1, 1, 4, 0, 0, 0] as const;
 const KEEP_LOOP = 4;
 
 /**
+ * Where the bands start, unless a script says otherwise.
+ *
+ * Everything in the top 48 rows shares the lowest drawing priority, and the ten
+ * bands below it divide the remaining 120 rows twelve at a time.
+ */
+export const DEFAULT_PRIORITY_BASE = 48;
+
+/**
  * Priority from the row an object stands on.
  *
- * The picture is banded: everything in the top 48 rows shares the lowest
- * drawing priority, and below that each band of 12 rows is one step nearer the
- * viewer. Priority 15 is not produced here -- it is reserved for objects a
- * script pins in front of everything.
+ * The picture is banded: everything above the base shares the lowest drawing
+ * priority, and the ten bands below it divide what is left. Priority 15 is not
+ * produced here -- it is reserved for objects a script pins in front of
+ * everything.
+ *
+ * `set.pri.base` moves the base, and the arithmetic below is what generalises
+ * the bands to it. It is not a guess: with the default base of 48 it returns
+ * the same priority as the table this engine hard-coded for eighteen
+ * milestones, for every one of the picture's 168 rows -- ten bands of twelve,
+ * 5 through 14 -- which is a formula agreeing with a measurement rather than a
+ * formula taken on trust.
+ *
+ * Neither game here calls the command: it arrived in AGI 2.936, and Larry's
+ * interpreter is 2.440 and King's Quest I's is 2.917. So this is the one rule
+ * in M18 that no available game can exercise, which is exactly why it is a
+ * rule rather than a counted stub -- a missing command is reported, a wrong
+ * band is silent.
  *
  * @param y base row, in game coordinates
+ * @param base the row the bands start at
  */
-export function priorityForRow(y: number): number {
-  if (y < 48) return 4;
-  return Math.min(15, Math.floor(y / 12) + 1);
+export function priorityForRow(y: number, base = DEFAULT_PRIORITY_BASE): number {
+  if (y < base) return 4;
+  const span = Math.max(1, PICTURE_HEIGHT - base);
+  return Math.min(15, Math.floor(((y - base) * 10) / span) + 5);
 }
 
 /** The rectangle `block` defines, and whether it is in force. */
@@ -319,7 +342,7 @@ export function fixPosition(machine: Machine, object: ViewObject): void {
   const width = Math.max(1, object.width);
 
   const legal = () => {
-    if (!object.fixedPriority) object.priority = priorityForRow(object.y);
+    if (!object.fixedPriority) object.priority = priorityForRow(object.y, machine.priorityBase);
     return (
       fitsOnScreen(object, machine.horizon) &&
       checkFooting(machine.background, object, object.priority).allowed &&
@@ -355,7 +378,7 @@ export function fixPosition(machine: Machine, object: ViewObject): void {
   // position that is visible beats one that is invented.
   object.x = wanted.x;
   object.y = wanted.y;
-  if (!object.fixedPriority) object.priority = priorityForRow(object.y);
+  if (!object.fixedPriority) object.priority = priorityForRow(object.y, machine.priorityBase);
 }
 
 /** How far {@link fixPosition} will look for a legal spot. */
@@ -564,7 +587,7 @@ export function updatePositions(machine: Machine): void {
     object.x = x;
     object.y = y;
 
-    if (!object.fixedPriority) object.priority = priorityForRow(y);
+    if (!object.fixedPriority) object.priority = priorityForRow(y, machine.priorityBase);
 
     const footing = checkFooting(machine.background, object, object.priority);
     const legal =
@@ -578,7 +601,7 @@ export function updatePositions(machine: Machine): void {
     } else {
       object.x = oldX;
       object.y = oldY;
-      if (!object.fixedPriority) object.priority = priorityForRow(oldY);
+      if (!object.fixedPriority) object.priority = priorityForRow(oldY, machine.priorityBase);
       object.didNotMove = true;
       edge = EDGE.NONE;
     }

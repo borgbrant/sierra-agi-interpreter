@@ -5,16 +5,18 @@
  * Hercules (M13) is a line here rather than a search for everywhere the choice
  * is read.
  *
- * All three are real, and no two are alike: sixteen colours at 320x200, four
- * at the same size, and two at 720x348 in a cell of its own. `JR_GRAF.OVL` is
- * the fourth the original shipped and has no entry here; `engine/hardware.ts`
- * says why.
+ * They are all real, and no two are alike: sixteen colours at 320x200, four at
+ * the same size, two at 720x348 in a cell of its own, and that two-colour mode
+ * again down a composite wire, where four pixels are one colour cycle.
+ * `JR_GRAF.OVL` is the fourth overlay the original shipped and has no entry
+ * here; `engine/hardware.ts` says why.
  */
 import type { CgaTables } from '../cgatables.ts';
 import type { HgcDither } from '../hgcdither.ts';
 import type { HgcFont } from '../hgcfont.ts';
 import { CgaDriver } from './cga.ts';
 import { CgaMonoDriver } from './cgamono.ts';
+import { CgaCompositeDriver } from './composite.ts';
 import type { DisplayDriver, DisplayMode } from './driver.ts';
 import { EgaDriver } from './ega.ts';
 import { HerculesDriver } from './hercules.ts';
@@ -22,6 +24,7 @@ import { HerculesDriver } from './hercules.ts';
 export type { DisplayDriver, DisplayMode } from './driver.ts';
 export { CgaDriver } from './cga.ts';
 export { CgaMonoDriver } from './cgamono.ts';
+export { CgaCompositeDriver, compositeColour } from './composite.ts';
 export { EgaDriver } from './ega.ts';
 export { HerculesDriver } from './hercules.ts';
 
@@ -78,6 +81,13 @@ export function createDriver(mode: DisplayMode, options: DriverOptions = {}): Di
       return options.monochrome
         ? new CgaMonoDriver(options.cgaTables)
         : new CgaDriver(options.cgaTables);
+
+    // Already in the mode `toggle.monitor` would switch it to, which is the
+    // whole point of it: 640x200 is where a composite monitor finds sixteen
+    // colours. So the game asking for mono changes what the scripts are told
+    // and nothing on the screen.
+    case 'composite':
+      return new CgaCompositeDriver(options.cgaTables);
 
     case 'ega':
       return new EgaDriver(mode);

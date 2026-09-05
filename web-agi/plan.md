@@ -3,7 +3,7 @@
 Companion to [spec.md](spec.md). The spec says _what_ to build; this says in what
 order, in which files, and how each step is proven to work.
 
-> **M0-M17 are done and shipped.** The
+> **M0-M19 are done and shipped.** The
 > milestones are kept as they were written, for the reasoning behind the
 > sequencing and for the format measurements in the next section. They are not a
 > description of the code as built: several modules ended up named or split
@@ -30,6 +30,8 @@ M14 The shell the player sees           complete
 M15 The dither the original shipped     complete
 M16 CGA, as the original drew it        complete
 M17 The page, designed                  complete
+M18 The next game                       complete
+M19 The composite monitor               complete
 ```
 
 ## Grounding: what was verified before planning
@@ -2575,6 +2577,733 @@ moving it.
 
 ---
 
+## M18 — The next game — complete
+
+Eighteen milestones in, the engine runs one game. The reason is narrower than
+that sounds: there is no game-specific code in it. What there is instead are
+four assumptions about the *interpreter's* files, three of them added by the
+milestones that made Hercules and CGA faithful -- M15 and M16 bought their
+fidelity by reading a particular build of a particular data file at particular
+offsets, and neither said what a different build would do.
+
+`HGC_OBJS.OVL` and `IBM_OBJS.OVL` are what prompted this milestone, and reading
+them is what makes it worth doing rather than guessing at: they say what the
+original's sprite blit does, they bound the work to one adapter, and they hand
+over a rule the engine has wrong.
+
+Then a second game arrived, and it turned two of the four assumptions from
+hazards into measurements -- one of them harmless and one of them a picture of
+noise.
+
+### Grounding: what is measured
+
+```text
+game-specific code             none. `grep -rn "LSL1\|Larry" src/` finds
+                               thirteen lines, and every one is a comment about
+                               whose AGIDATA.OVL the bundled tables came from,
+                               a comment about this game's death sequence, or
+                               the shell's own two lines of copy. No branch
+                               anywhere reads which game is running
+actions without a handler      1 of 170 -- `discard.view.v`. The other thirteen
+                               names in the table are `return`, which the
+                               interpreter runs itself, and twelve opcodes above
+                               2.440's count, which the reader refuses by design
+the interpreter version        a constant. `INTERPRETER_VERSION = '2.440'` in
+                               logic/opcodes.ts, and DEFAULT_COMMAND_COUNT
+                               follows from it
+the dither tables              four fixed offsets into AGIDATA.OVL -- 0x1bea
+                               (Hercules), 0x1b78, 0x1ba8 and 0x1bb8 (CGA) --
+                               which are offsets into *this build* of the
+                               interpreter's data, not addresses AGI defines
+the priority bands             48 and 12, constants inside priorityForRow
+```
+
+### Grounding: the second game
+
+`agi-extract/data` now holds a directory per game: `lsl1`, which is bundled, and
+`kq1`, which is not. King's Quest I is AGI **2.917** against Larry's 2.440, and
+running it is what this milestone was written blind about.
+
+```text
+what is in it         90 logic, 82 pic, 118 view, 26 sound, 27 inventory items
+it decodes            all 90 scripts, at the command count this engine pins to
+                      2.440. Every jump lands on an instruction boundary, and
+                      the highest opcode it uses is 162 (show.obj.v) -- below
+                      LSL1's own 169
+it runs               room 83 to room 1 in 200 cycles, the castle and the
+                      drawbridge drawn, the status line reading "Score:0 of
+                      158", Graham walking in all four directions, and not one
+                      command reached that the engine cannot do
+```
+
+So the engine already runs a game it was never pointed at, which is the
+milestone's premise holding up. What does not hold up is the interpreter's data:
+
+```text
+the CGA tables    refused. decodeCgaTables reads LSL1's offsets in KQ1's file,
+                  finds the two-colour tables disagreeing at colour 0 -- 5
+                  filling against 4 drawing -- and the engine falls back to the
+                  bundled tables. The self-check M16 wrote for a different
+                  reason is what makes this a graceful failure
+the HGC table     accepted, and wrong. At 0x1bea in KQ1's AGIDATA.OVL is the
+                  ASCII text "store in\n\n%s\n\nPr" -- a printf format string.
+                  Read as sixteen groups of eight it has densities [33, 22, 28,
+                  30, ...] ending in 0, so black is a mid grey and white is
+                  black, and the picture comes out as noise with its ends
+                  swapped. Nothing anywhere says so
+```
+
+The two rendered frames are the argument for doing this milestone at all: KQ1's
+first room in Hercules is unreadable static as the engine stands, and legible
+the moment the table is read from where it actually is.
+
+And the fix is measured too, not hoped for:
+
+```text
+where they really are   0x1d9e for Hercules, 0x1d2c / 0x1d5c / 0x1d6c for CGA
+                        -- 436 bytes above LSL1's, exactly
+what is in them         byte for byte identical to LSL1's, all four tables. The
+                        tables belong to the interpreter and did not change
+                        between 2.440 and 2.917, which is why CGA's fallback
+                        happens to be right and why Hercules' silence is the
+                        only thing standing between the two games
+the signature holds     searching for sixteen bytes whose low nibbles are a
+                        permutation finds three candidates in each file -- an
+                        offset and its two neighbours -- and M16's fill/mono
+                        tie, 48 bytes apart, picks the right one in both
+```
+
+The first line is the milestone's premise. The engine holds no room numbers, no
+view numbers and no game ids; the three rules M4-M6 needed that the
+documentation does not state were all put in the engine rather than in a loader,
+and the fourth, `ignore.objs`, went the same way after M17. So this is not a
+milestone about untangling a game from an interpreter. It is about four
+constants and one wrong rule.
+
+### What the two object overlays turned out to say
+
+Read with the 8086 disassembler M16 wrote. Both files are code and nothing else
+-- HGC's is 0x09 to 0x256 of 1024 bytes, IBM's 0x09 to 0x154 of 512, and the
+rest of each is zero -- so there is no per-object special case anywhere in them
+to reproduce. Three routines each, behind a three-entry jump table: save the
+rectangle behind an object, put it back, blit a cel.
+
+```text
+confirmed   sprites are dithered from the same 128 bytes at 0x1bea and the same
+            colour * 8 + phase * 2 index as the picture, which M15 assumed
+confirmed   the control-line rule, verbatim in both: a destination pixel whose
+            priority is 2 or less sends the blit scanning *down* the screen,
+            160 bytes a row, bounded at 0x6860, for the first priority above 2.
+            "A control line is a gap in the depths" is the original's own
+            arithmetic rather than this engine's inference
+confirmed   M13's geometry, derived from photographs: one byte per two AGI
+            pixels, two device rows per AGI row, the second at +0x50 -- 640 by
+            336 inside a 720-wide screen
+bounded     IBM_OBJS writes only the logical screen; the device update is the
+            GRAF blit's. So for EGA and CGA a sprite goes through the picture's
+            own path, which is exactly what this engine does by compositing
+            cels before the driver sees them. There is no work here for two of
+            the three modes
+contradicted  the phase. HGC_GRAF takes it from the AGI row; HGC_OBJS takes it
+            from the cel's row counter, which starts at the cel's height and
+            counts down
+unknown     what the interpreter does with an object no pixel of which was
+            drawn. Both files track it -- a flag set before the loop, cleared
+            on the first pixel written -- and hand it to a routine outside the
+            overlay (`call 0xd957` when something was drawn, `0xd951` when
+            nothing was), so the overlay says that it matters and not what it
+            does
+```
+
+### The phase, and what following it costs
+
+`[0x1c7f]` is initialised to the cel's height and decremented per row, and the
+table index is `colour * 8 + ((that & 3) * 2)`. So on the original a sprite's
+dither is anchored to the sprite, offset by its height, and runs down the cel in
+the opposite direction from the background's -- which vertically mirrors the
+patterns that are diagonals, brown's `11 22 44 88` among them.
+
+This engine composites cels into the visual screen and dithers the composed
+screen, so its sprites are in phase with the background. Following the original
+means the driver has to know where a cel starts and how tall it is, and the
+seam M10 drew deliberately does not carry that: `present` hands over a screen
+and a list of layers, not sprites.
+
+That is the one place in the milestone where the honest answer might be "no".
+The options, cheapest first:
+
+```text
+a phase offset per drawn cel   the seam grows one field -- a phase for the
+                               region a cel occupied -- and the driver applies
+                               it. Small, and it leaks the concept of a cel
+                               into a layer that has been kept clear of it
+cels as their own layer        the driver draws them, which is what the
+                               original does and what the overlays are. Right,
+                               and it moves the sprite compositor across the
+                               seam: priority test, transparency and the
+                               control-line lookahead all go with it
+leave it, recorded             what the spec says today
+```
+
+The captures cannot settle whether it is visible: their hatched objects are
+`add.to.pic`'d into the picture rather than drawn as sprites, which is what M15
+found when it went looking for evidence of a separate sprite table.
+
+### The dangerous assumption is not a missing command
+
+A command with no handler is a counted stub: the game keeps running and the
+developer panel names it. That is the design M3 chose and it degrades honestly.
+
+A wrong *rule* does not. `set.pri.base` is one of the twelve opcodes above
+2.440's count, and a game that calls it changes what row maps to what priority
+band -- the 48 and the 12 inside `priorityForRow`. An engine that ignores it
+runs, draws, and puts every sprite in the wrong band: characters walk in front
+of walls they should be behind and no error is reported anywhere. The other
+names the specification assigns up there -- `set.simple`, `push.script`,
+`pop.script`, `hold.key`, `discard.sound`, the mouse commands, `release.key` --
+are commands, and commands are visible when they are missing. The numbering has
+to be read off the specification when a game that uses them arrives; this
+engine's table calls all twelve `unknownNNN` because 2.440 has none of them.
+
+### The tables have to be found rather than assumed
+
+M16 proved three properties of the CGA tables while arguing that it had read
+them correctly, and those properties are exactly a signature to search for:
+
+```text
+0x1ba8 is a permutation      all sixteen nibble values, once each
+the fill table agrees        0x1b78's byte-0 column equals 0x1ba8 entry for
+                             entry, 48 bytes apart with no reason to agree
+                             unless both have been read right
+0x1bea is sixteen groups     of eight bytes, and their densities are ordered
+```
+
+`decodeCgaTables` already refuses a file whose tables disagree, which is why a
+different build degrades to the bundled tables today rather than drawing
+nonsense. Searching for the signature instead turns that from a graceful
+failure into a working game.
+
+### Files
+
+```text
+src/logic/opcodes.ts        the version read rather than declared, and the
+                            twelve names above 0xA9
+src/logic/reader.ts         the command count from the game's own interpreter
+src/render/cgatables.ts     the tables located by signature, offsets as a hint
+src/render/hgcdither.ts     the same for 0x1bea
+src/engine/motion.ts        priorityForRow from a band base the scripts can set
+src/engine/commands/*.ts    set.pri.base, discard.view.v, and whichever of the
+                            twelve a second game turns out to reach
+src/render/drivers/*.ts     the sprite phase, if the seam is opened for it
+test/secondgame.test.ts     the second game, skipped when it is absent
+```
+
+### Order of work
+
+1. **The tables, found.** Search AGIDATA.OVL for M16's signature, with the four
+   known offsets as the first place to look, and refuse a table that does not
+   look like one -- sixteen groups whose densities run from empty to full. A
+   file where the signature is absent falls back to the bundled tables exactly
+   as it does now. First, because it is the one thing on this list that is
+   already drawing the wrong picture and saying nothing.
+2. **The version.** Read it from the game's own AGIDATA.OVL -- it is the string
+   `Version 2.917` at 0xacc in KQ1's, and `Version 2.440` at 0xaac in LSL1's --
+   instead of naming it in a constant, and take the command count from that.
+   Demoted from first to second by measurement: KQ1 decodes at LSL1's count, so
+   this is insurance rather than a repair, and it is what a *third* game will
+   need.
+3. **`set.pri.base`, and `priorityForRow` with a base.** The rule, before the
+   commands: a band base is one variable and two lines of arithmetic, and it is
+   the one thing on this list that is silently wrong rather than loudly absent.
+4. **The commands.** `discard.view.v` first, because it is the only named
+   action in the table without a handler; then the twelve, as a table of names
+   with stubs behind them, so a second game's log says which of them it wants.
+5. **The sprite phase.** Last, and only after a decision on which of the three
+   options above to take -- it is the only step that touches the M10 seam, and
+   the only one whose result nothing available can photograph.
+
+### How this is verified
+
+There is a second game now, and it is not in the repository -- `agi-extract/data`
+is where a copy of a game is put, and `public/games` is what the app serves.
+So the second-game tests read from that directory and skip when it is absent,
+the way M15's tests skip without the screenshots.
+
+```text
+the second game  `test/secondgame.test.ts`, skipped when data/kq1 is not there:
+                 90 scripts decode with every jump on a boundary, the game
+                 reaches room 1 within 300 cycles, ego moves in all four
+                 directions, no command is reached that the engine cannot do,
+                 and both tables are found at 0x1d9e and 0x1d2c rather than at
+                 LSL1's offsets
+the table check  KQ1's bytes at 0x1bea -- the printf string -- are refused as a
+                 dither table, by the same rule that accepts the real one 436
+                 bytes further on. This is the test the milestone exists for
+synthetic        a fabricated LOGIC calling set.pri.base moves the bands, and
+                 the golden screens change in the way the base predicts
+unchanged        every existing golden test. LSL1 decodes at 170 commands,
+                 finds its tables where M15 and M16 recorded them, and renders
+                 hash-for-hash as it does today -- that is what says the
+                 generalisation cost this game nothing
+open             the sprite phase, which no capture in this repository shows
+```
+
+### What this is not
+
+Not AGI v3 and not a loader for player-supplied files: both stay where the spec
+put them, in later phases, and both are about where bytes come from rather than
+about what the engine assumes. Not a second game bundled into the repository.
+And not a game-specific loader -- the open question M6 answered stays answered,
+and anything a second game needs that this one does not is a rule the engine was
+missing, not a patch for that game.
+
+**Done when:** the interpreter version, the command count and all four dither
+tables come from the game's own files rather than from constants; `set.pri.base`
+moves the priority bands and `discard.view.v` exists; every one of LSL1's golden
+tests is unchanged; KQ1's first room draws legibly in all three display modes,
+with its own tables read from its own AGIDATA.OVL; and a data file whose tables
+are not where they are expected is either found by signature or refused, never
+read as a table because something happens to be at the offset.
+
+### What is in the files
+
+```text
+src/render/agidata.ts        the block, the anchor, and what a table has to
+                             look like before it is used as one
+src/resources/interpreter.ts the version line, and the command count from it
+src/render/cgatables.ts      decodeCgaTables takes where the tables are
+src/render/hgcdither.ts      decodeHgcDither takes where the table is
+src/engine/motion.ts         priorityForRow generalised to a band base
+src/engine/machine.ts        priorityBase and commandCount, both from the game
+src/engine/snapshot.ts       the base, saved -- see below
+src/engine/commands/core.ts  set.pri.base and discard.view.v
+src/logic/opcodes.ts         the twelve opcodes above 0xA9, named
+src/main.ts                  one read of AGIDATA.OVL, two things taken from it
+scripts/build-manifest.mjs   a directory per game, and an index of them
+src/resources/source.ts      listGames, and BundledSource.forGame
+src/shell/shell.ts           the picker, and a title that follows the game
+src/shell/settings.ts        which game, remembered
+test/interpreter.test.ts     10 tests on finding, refusing and falling back
+test/secondgame.test.ts      4 against King's Quest I, skipped without it
+test/manifest.test.ts        every bundled game, not just the first
+```
+
+### The anchor, and why the Hercules table cannot be its own
+
+The CGA two-colour table is findable on its own terms: sixteen bytes whose low
+nibbles are a permutation of the sixteen values, with the fill table's first
+column repeating it 48 bytes earlier. That pair occurs exactly once in each of
+the two files.
+
+The Hercules table is not. It begins with eight zero bytes and ends with eight
+0xff ones, and so do the bytes on either side of it -- so its own shape matches
+at *four consecutive offsets*, and a run of zeros elsewhere in the file matches
+as well. Searching for it directly found thirteen candidates in one file and
+seventeen in the other.
+
+```text
+lsl1   0xe26-0xe2e and 0x1be7-0x1bea      13 candidates for a 128-byte table
+kq1    0xe84-0xe90 and 0x1d9b-0x1d9e      17
+```
+
+So it is found by its distance from the anchor and then *checked*: black draws
+nothing, white draws all 64, and the sixteen densities are not three values in
+a trenchcoat. That is the honest way round -- an anchor that cannot be
+ambiguous, and a table that can only be confirmed -- and it is why the printf
+string is refused rather than argued with.
+
+### The bands, and a formula that had to prove itself
+
+`set.pri.base` moves the row the priority bands start at, and generalising
+`priorityForRow` to it means replacing a rule that was two constants with one
+that is arithmetic. The arithmetic is from the AGI documentation, which is
+exactly the kind of source this project has been burned by twice.
+
+So it is checked the way M16 checked its table readings -- against something
+that was already known:
+
+```text
+priority = 4                                     above the base
+priority = ((y - base) * 10) / (168 - base) + 5   below it
+```
+
+At base 48 that returns, for every one of the picture's 168 rows, what the
+hard-coded 48-and-12 bands returned. Ten bands of twelve, 5 through 14, row for
+row. A formula agreeing with a measurement across 168 points is not a formula
+taken on trust, and `test/motion.test.ts` holds all 168.
+
+It is also the one thing in this milestone no available game can exercise:
+`set.pri.base` arrived in AGI 2.936, and the two interpreters here are 2.440
+and 2.917. It is implemented anyway, and the reason is the asymmetry the
+milestone is built around -- a missing command is counted and named on the
+developer surface, while bands that were never moved are silent.
+
+The base is in the snapshot, and that is not a detail: a saved game restored
+into the default bands would draw every sprite in the wrong one and report
+nothing, which is precisely what M8's round trip exists to catch.
+
+### The twelve names, and what makes them safe to write
+
+The table already held opcodes 170 to 181 as `unknownNNN` -- *with argument
+counts*, measured when it was built. The specification's names for those twelve
+carry argument counts too, and they agree in order, all twelve:
+
+```text
+1, 0, 0, 0, 1, 1, 0, 1, 0, 4, 2, 0
+set.simple, push.script, pop.script, hold.key, set.pri.base, discard.sound,
+hide.mouse, allow.menu, show.mouse, fence.mouse, mouse.posn, release.key
+```
+
+Twelve agreements in a row is not a coincidence. And the cost of being wrong is
+bounded: no script either interpreter accepts can reach them, so a wrong name
+costs a line of disassembly rather than a game.
+
+### What it found, and what it did not
+
+```text
+found     KQ1's Hercules screen was noise, and is a castle. The tables are read
+          from its own AGIDATA.OVL at 0x1d2c, and the string at 0x1bea is
+          refused
+found     the version is read: AGI 2.917, 173 commands, from the game's own file
+found     three engine defects, all on the same screen and all found only
+          after the picker made that screen reachable by someone who was not
+          looking for it: the default text attribute, where the picture goes,
+          and how much show.pic clears. See below
+not found anything else in the engine. KQ1 opens, decodes, runs to its first
+          room, draws, walks in four directions and reaches no command the
+          engine cannot do -- before this milestone as well as after it
+```
+
+That last line is close to the milestone's real result, and it is worth saying
+plainly rather than dressing up: the engine already ran a game it had never
+seen, and most of what M18 repaired was not the engine but the three places
+where a milestone had written down one copy's offsets and called them the
+format's.
+
+### The one engine defect, which two defaults had been standing in for
+
+`set.text.attribute` has a default, and this engine had it as black on white --
+the colours of a *message window*. They are not the same thing, and nothing had
+made that obvious because Larry sets the attribute during start-up, in logic 0,
+before anything is drawn with it.
+
+King's Quest I does not. It calls `set.text.attribute` exactly once in ninety
+scripts, in logic 53, and its title screen runs long before that: the credits
+scroll is `display.v` with whatever the default is, over a scroll whose interior
+the picture paints black. Black on white laid a white box over it and wrote the
+credits in black -- the whole panel inverted.
+
+The value is not a guess either. Larry's own status line says what it is:
+
+```text
+set.text.attribute(0, 15)   black on white
+display(0, 20, 30)          the line
+set.text.attribute(15, 0)   back to normal
+```
+
+That third line is the idiom in both games -- eight of Larry's fourteen calls
+are `(15, 0)`, each one restoring after a temporary colour. A game restores to
+the default, so the default is what they restore to: white on black.
+
+The two constants are separate now and say in their comments which is which. A
+message window is still black on white; a *window* was never the thing that was
+wrong.
+
+Three tests, each of which fails if the old default comes back: the two
+constants are opposites, a new game starts white on black, and King's Quest I's
+title screen writes every one of its cells white on black after 250 cycles with
+no key pressed.
+
+**It took the picker to find it.** The defect was reachable before -- KQ1 was
+two lines of code away all along -- but nobody was going to sit through a title
+screen they had to edit `settings.ts` to see. That is worth remembering the next
+time a milestone argues that a piece of UI is not engine work.
+
+### And the second one, on the same screen: where the picture goes
+
+With the credits the right colour, they were in the wrong place -- a black band
+across the banner above the scroll. Two explanations offered themselves, and
+both were wrong: that the text sat a row too high, and that a black text
+background should be transparent.
+
+The measurements said otherwise. The script asks for rows 6 to 18 and the
+engine writes exactly those. Only row 6 covered anything that was not already
+black: 332 pixels, all colour 9, the banner's blue. And the scroll's own
+interior begins at picture row 44, which is display row 44 if the picture starts
+at the top of the screen and 52 if it starts a row down. Text row 6 is display
+rows 48 to 55. So with the picture at the top the credits clear the scroll's
+edge by four pixels, and one row lower they cut into it by four.
+
+M11 made `configure.screen` real and left the picture out of it, on the reading
+that AGI's picture window is fixed at rows 1-21. That is true of Larry, which
+asks for `configure.screen(1, 23, 0)` at start-up and never moves it -- and
+M11's own note said "the next game to load is where the difference shows",
+which is exactly what happened.
+
+```text
+KQ1 logic 83, the title    configure.screen(0, 21, 0)
+KQ1 logic 0, the game      configure.screen(1, 22, 0)
+LSL1 logic 51, start-up    configure.screen(1, 23, 0)
+```
+
+The second number is what makes this a measurement rather than a guess: the
+input row is 21 when the play window starts at 0 and 22 when it starts at 1 --
+the row immediately below a 168-line picture, both times. The picture follows
+the play window, and `pictureRow(layout)` is now the one place that says so.
+
+**And the golden tests could not have caught it.** They hash
+`machine.screens.visual` -- the picture buffer -- which is the same whichever
+row it is drawn at. Every existing test passed with the picture eight pixels
+out of place. The new one measures the composed frame instead: render it, render
+it again with the text taken away, and count the picture pixels the text covered
+that were not black to begin with. Zero, or the credits are outside their
+scroll.
+
+Two lessons, and the second is the one worth keeping. A hash of an intermediate
+buffer proves the engine computed the right thing, not that the player saw it;
+and this milestone's engine defects were all constants that were one game's
+value, found by the second game, exactly as the milestone's own premise
+predicted -- it just did not expect to find them in `render/` and `engine/`
+rather than in the interpreter's data files.
+
+### The third, on the same screen again: how much show.pic clears
+
+The title screen was right and still missing its two bottom lines -- the
+copyright, and "Press any key to continue.". Logic 83 displays them on rows 22
+and 24 and *then* calls `show.pic`, and `show.pic` cleared the text layer. All
+of it.
+
+That is the right idea in the wrong extent. AGI has one framebuffer, so
+publishing the picture writes over whatever was on it -- but only where the
+picture lands. Rows 22 and 24 are below it and no blit of the picture area can
+reach them. It clears the twenty-one rows the picture covers now, from
+`pictureRow(layout)`, which is also why this had to wait for the fix above.
+
+The comment on that line said the whole-layer clear was "safe as well as
+faithful, and it was checked rather than assumed: no script in the game writes
+with `display` and then shows the picture". True, checked, and one game's
+answer -- the third of those in this milestone.
+
+Larry corroborates the new rule rather than merely tolerating it: it clears rows
+22 to 24 *itself*, in `clear.lines(22, 24, 0)` at the top of several rooms,
+which is what a game has to do if `show.pic` cannot reach them.
+
+And the change is provably invisible to it. Running both interpreters side by
+side over the first 1200 cycles of each game, comparing the composed frame
+rather than any buffer:
+
+```text
+Larry            0 of 1200 frames differ
+King's Quest I  99 of 1200 differ, and only on text rows 22 and 24
+```
+
+Three tests: `show.pic` keeps what is above and below the picture and clears
+what is under it, the band it clears follows the picture when a game moves it,
+and King's Quest I's title screen still has both lines sixty cycles in.
+
+### The sprite phase, declined
+
+Step 5 was the one with three options and no decision. It has one now, and it
+is no.
+
+The obstacle turned out not to be the seam. A phase *plane* would work -- a
+byte per pixel beside the visual and priority ones, written by the sprite
+compositor with the cel's own row counter and read by the Hercules driver --
+because the thing the driver needs is per-pixel, and overlapping sprites resolve
+themselves the same way their colours do. It is buildable, at the cost of a
+third plane through `present`, a fourth thing to save and restore, and a rule
+that only one of three drivers reads.
+
+What it buys is that a Hercules sprite's dither would be anchored to the sprite
+and run down it backwards, as `HGC_OBJS.OVL` does it, instead of being in phase
+with the background as it is here. No capture in this repository shows the
+difference, neither game's playability touches it, and it is a fidelity detail
+in the one mode that is a simulation to begin with.
+
+So it stays where the spec records it, and this is now a decision with a reason
+rather than an open option. The next person to want it has the mechanism
+written down.
+
+### The picker, which the second game made unavoidable
+
+A second game that only a code edit can reach is not a second game the player
+has. So the app serves `public/games/<id>/` with a manifest each, plus a
+`games/index.json` the shell fetches before anything else -- a couple of hundred
+bytes against a game's four megabytes, which is what lets the question be asked
+before the answer is loaded.
+
+Three decisions worth recording, because each had an easier wrong answer:
+
+```text
+no default game        the picker waits. Starting Larry because he was first
+                       would be starting the wrong game for whoever came for
+                       King's Quest, and the only thing that skips the question
+                       is a build with one game in it
+remembered, not asked  a second visit goes straight in, and *Change game*
+                       forgets the choice. Asking every time is a click nobody
+                       chose to make
+reload, not swap       a running game owns the machine, the view table, the
+                       sound and the renderer. Tearing that down safely is a
+                       milestone, not a button; a reload is the same thing from
+                       the player's side and cannot leave one game's state
+                       inside another's
+```
+
+Two things it broke on the way, both worth naming because both were silent.
+
+The stylesheet is one string, and the picker's rules were inserted in the middle
+of `.shell__header, .shell__chrome { padding-inline: ... }` -- between the
+selector and its partner. The header inherited `position: absolute` and a
+560-pixel width and moved to the middle of the page. Loud, and fixed in a
+minute.
+
+The quiet one: `test/helpers/disk-source.ts` pointed at `public/game`, and the
+Hercules capture tests found their PNGs by walking up from it. `public/games/lsl1`
+is one directory deeper, the walk landed short, and four tests that skip when
+the captures are absent skipped. The suite still said 0 failures. The captures
+are anchored from the helper's own file now, and the count is watched:
+
+```text
+430 tests, 430 pass, 0 skipped
+```
+
+A skip is not a pass, and a suite that can lose four tests to a moved directory
+without saying so is a suite worth reading the skip count of.
+
+**Done.** Both games' tables come from their own copies of `AGIDATA.OVL`, found
+by an anchor that cannot be ambiguous and confirmed by a shape that can be
+checked; both versions are read from the file that names them; the priority
+bands are a rule with a base rather than two constants, and the base is saved;
+the twelve opcodes above 0xA9 have their names; and King's Quest I's first room
+draws in EGA, CGA and Hercules, from King's Quest I's own files. The player
+picks between the two before either starts, and the title screen they land on
+is the colours the original drew it in, in the place the original drew it, with
+the lines the original printed under it. 410 tests to 438.
+
+---
+
+## M19 — The composite monitor — complete
+
+A fourth entry in the shell's graphics list, and the first one that is not an
+adapter. It is the CGA again -- the same card, in the 640x200 two-colour mode
+`Ctrl-R` asks for -- with a composite monitor on the end of the cable instead of
+an RGB one. On that monitor the picture comes back in colour.
+
+### Grounding: the mode was already in the tables
+
+The reason this is a mode rather than a filter is arithmetic that was sitting in
+two places this project had already been.
+
+```text
+the card    a CGA's pixel clock is four times the NTSC colour subcarrier, so
+            four pixels are exactly one colour cycle: the pattern in them is a
+            hue and a luminance rather than four dots
+the table   M16 found the two-colour table at 0x1ba8 and proved it is a
+            *permutation* of all sixteen nibble values -- every AGI colour with
+            a four-pixel pattern of its own, no two alike
+the menu    engine/hardware.ts, written in M11: the game offers "Graphics Mode
+            <Ctrl-R>" on CGA and nowhere else, and its own comment already said
+            that is "a thing only a composite CGA screen has any use for"
+```
+
+A permutation of sixteen four-bit patterns is not what dithering needs -- M13's
+Hercules table has ten densities over sixteen colours and collides eleven times.
+It is what sixteen artefact colours need. The table was a composite palette all
+along, and M16 measured its shape without saying what the shape was for.
+
+### What the demodulator is, and the one number that is fitted
+
+Per pixel: luma is the mean over one colour cycle, chroma is two cycles
+projected onto the subcarrier through a Hann window, and YIQ becomes RGB through
+the standard matrix. None of that is a choice.
+
+The burst phase is a choice, because nothing in any file records it -- M16 read
+`CGA_GRAF.OVL` and it sets a mode register and a foreground colour, not a
+monitor. So it is fitted: the angle at which the interpreter's sixteen patterns
+land nearest the palette's own sixteen hues, which is 316 degrees. What that
+recovers, measured:
+
+```text
+black and white     exact, at both ends
+the two greys       both grey, and within eight of each other. 0101 and 1010
+                    differ only in phase, and phase at twice the subcarrier is
+                    the one thing a composite monitor cannot see -- so this
+                    mode has fifteen colours, not sixteen, and the original had
+                    fifteen too
+light against dark  every three-bit pattern brighter than every one-bit one:
+                    166 at the dimmest against 89 at the brightest
+the hues            8 of the 12 chromatic colours within 30 degrees of their
+                    own, mean error 27
+the outlier         light magenta, 83 degrees out. Its pattern is two adjacent
+                    bits at half luminance, and Sierra gave the four two-bit
+                    patterns to colours whose luminances do not match them
+                    either: some of that table is hue and some of it is what
+                    was left over
+```
+
+A demodulator with nothing to do with these patterns would average 90 degrees of
+hue error. Twenty-seven is the table answering.
+
+### What is in the files
+
+```text
+src/render/drivers/composite.ts   the demodulator, and compositeColour for the
+                                  tests
+src/render/drivers/driver.ts      a fourth DisplayMode, and why a monitor is in
+                                  a list of adapters
+src/render/drivers/index.ts       one more case, and no mono variant
+src/engine/hardware.ts            composite is a CGA to the scripts
+src/shell/controls.ts             the entry, and what choosing it does
+src/shell/settings.ts             one more remembered value
+test/composite.test.ts            9 tests
+```
+
+### Three decisions
+
+**A subclass, not a sibling.** `CgaCompositeDriver extends CgaMonoDriver` and
+overrides three things: its mode, that it is not monochrome, and `toRgba`. That
+is the domain: the card is the same card and writes the same pixels, and a test
+holds exactly that -- the same frame through both drivers leaves the same bits
+in the framebuffer.
+
+**Already in the mode `Ctrl-R` switches to.** `hasMonoVariant('composite')` is
+false, so a game calling `toggle.monitor` changes what the scripts are told and
+nothing on the screen. It is already in 640x200; that is what the mode is.
+
+**A CGA to the scripts.** `monitorTypeFor` returns the CGA value, which is the
+branch that offers the menu item this monitor exists for. Telling the game it
+was on something else would take the item away.
+
+### What it costs
+
+```text
+the two-colour driver   0.4 ms a frame at 640x200
+composite               4.8 ms
+```
+
+Thirteen times the work and under a third of a 60 Hz budget, which is what a
+monitor costs. Skipping unlit samples in the chroma loop was tried and is
+*slower* -- 5.3 ms -- because the branch costs more than the multiply it
+avoids. Measured, not assumed, and the number is in the comment so the next
+person does not try it again.
+
+### What this is not
+
+Not the 320x200 four-colour mode on a composite screen, which artefacts too and
+muddily; this mode is the one the card has a menu item for. Not a filter over
+the other drivers -- EGA down a composite wire is not a thing that happened.
+And not a claim about any particular television: the saturation and the chroma
+bandwidth are a monitor's knobs, set to look like one.
+
+**Done.** Composite sits in the shell's list beside EGA, CGA and Hercules; every
+pixel it decodes is the two-colour driver's own, drawn with the interpreter's
+table; black, white and the greys come out exact; eight of the twelve hues land
+within 30 degrees of their own and the outlier is recorded rather than tuned
+away; and boundaries fringe, because the chroma filter is wider than a colour
+cycle. 438 tests to 447.
+
+---
+
 ## Testing strategy
 
 Three layers, in the order they catch things:
@@ -2662,3 +3391,33 @@ Two of the spec's four are answered above. These remain:
 - ~~Whether the debug overlay ships in the production build.~~ Answered: it
   ships. The whole of `shell/debug.ts` plus the disassembler is about 1 KB
   gzipped, which is not worth a build flag and a second code path.
+
+Two of the "not read" notes in M13, M15 and M16 have since been read, so they
+are answered here rather than edited into the milestones that recorded them:
+
+- ~~`HGC_OBJS.OVL` and `IBM_OBJS.OVL`, and what they did differently.~~ Read,
+  with the M16 disassembler. Three routines each and no data at all: save the
+  rectangle behind an object, put it back, and blit a cel. Nothing in either
+  file names an object, holds a cel or substitutes anything, so there is no
+  per-object special case in the original to reproduce.
+
+  Three things they confirm. Sprites are dithered from the same 128 bytes at
+  `0x1bea` and the same `colour * 8 + phase * 2` index as the picture, which
+  M15 had assumed. The control-line rule is in both files verbatim -- a
+  destination pixel whose priority is 2 or less sends the blit scanning
+  *down* the screen, 160 bytes a row and bounded at `0x6860`, for the first
+  priority above 2 -- so "a control line is a gap in the depths" is the
+  original's own arithmetic rather than an inference. And the geometry M13
+  derived from photographs is the geometry in the code: one byte per two AGI
+  pixels, two device rows per AGI row, `+0x50` for the second, which is 640 by
+  336 inside a 720-wide screen.
+
+  One thing they contradict, and it is now the only entry left in the spec's
+  Hercules table that a file could settle: the object blit's dither phase is
+  its cel row counter, not the AGI row.
+
+  The screen buffer they draw into is also worth recording, because it explains
+  a design the engine arrived at independently: one byte per pixel, the
+  priority in the high nibble and the colour in the low one, 160 bytes to a row
+  and 168 rows. This engine keeps the two in separate buffers, which is the
+  same information with the packing undone.

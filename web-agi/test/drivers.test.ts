@@ -13,7 +13,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { PICTURE_ROW } from '../src/engine/layout.ts';
+import { DEFAULT_PICTURE_ROW } from '../src/engine/layout.ts';
 import { Display } from '../src/render/display.ts';
 import type { DisplayDriver, DisplayMode } from '../src/render/drivers/driver.ts';
 import { EgaDriver } from '../src/render/drivers/ega.ts';
@@ -33,7 +33,7 @@ function everything(): Frame {
 
   return new Frame()
     .fill(2)
-    .picture(new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(5), PICTURE_ROW)
+    .picture(new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(5), DEFAULT_PICTURE_ROW)
     .cells(cells)
     .text('status', 0, 0, 0, 15)
     .rows(24, 24, 1)

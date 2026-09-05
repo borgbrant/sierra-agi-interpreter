@@ -48,9 +48,12 @@ export type FrameLayer =
    * `show.obj`'s close-up, and the one place the engine asks for a cel outside
    * the picture. How a cel becomes pixels is the driver's business -- the
    * original shipped `HGC_OBJS.OVL` beside `IBM_OBJS.OVL` for exactly this --
-   * so the position is given in the picture's own rows, not in display pixels.
+   * so the position is given in the picture's own rows, not in display pixels
+   * -- `top` down from the picture's first row, and `row` which text row that
+   * first row is, because a game may move the picture up under a status line
+   * it has switched off.
    */
-  | { kind: 'cel'; cel: Cel; top: number };
+  | { kind: 'cel'; cel: Cel; top: number; row: number };
 
 /**
  * A frame under construction.
@@ -116,8 +119,8 @@ export class Frame {
    *
    * @param top how far down the picture area its top row sits, in picture rows
    */
-  cel(cel: Cel, top: number): this {
-    this.layers.push({ kind: 'cel', cel, top });
+  cel(cel: Cel, top: number, row: number): this {
+    this.layers.push({ kind: 'cel', cel, top, row });
     return this;
   }
 }

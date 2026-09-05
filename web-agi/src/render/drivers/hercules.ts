@@ -109,7 +109,6 @@ import {
   HGC_LEVELS,
   type HgcDither,
 } from '../hgcdither.ts';
-import { PICTURE_ROW } from '../../engine/layout.ts';
 import type { DisplayDriver, DisplayMode } from './driver.ts';
 
 /** The adapter's own resolution. */
@@ -337,7 +336,7 @@ export class HerculesDriver implements DisplayDriver {
           break;
 
         case 'cel':
-          this.#drawCel(layer.cel, PICTURE_ROW * this.cell.height + layer.top * HGC_PIXEL_HEIGHT);
+          this.#drawCel(layer.cel, layer.row * this.cell.height + layer.top * HGC_PIXEL_HEIGHT);
           break;
 
         case 'cells':

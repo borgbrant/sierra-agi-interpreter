@@ -10,6 +10,8 @@ import {
   drawWindow,
   layOutWindow,
   WINDOW_BORDER_COLOUR,
+  DEFAULT_ATTRIBUTE_BACKGROUND,
+  DEFAULT_ATTRIBUTE_FOREGROUND,
   DEFAULT_BACKGROUND_COLOUR,
   DEFAULT_TEXT_COLOUR,
   ROWS,
@@ -257,4 +259,15 @@ test('writing off the edges is clipped, not wrapped', () => {
   const before = layer.chars.slice();
   layer.write('ignored', 0, ROWS + 5, 1, 0);
   assert.deepEqual([...layer.chars], [...before], 'a write off the grid changed nothing');
+});
+
+test('a message window and the text attribute start from opposite colours', () => {
+  // Two defaults that look like one, and King's Quest I is what proved they
+  // are not. A *window* is black on white -- the box the original draws over
+  // the picture. The text *attribute*, which `display` writes with, starts
+  // white on black, and that game's title screen draws its credits with it
+  // before any script has set it: black on white put a white box over a scroll
+  // the picture paints black.
+  assert.deepEqual([DEFAULT_TEXT_COLOUR, DEFAULT_BACKGROUND_COLOUR], [0, 15]);
+  assert.deepEqual([DEFAULT_ATTRIBUTE_FOREGROUND, DEFAULT_ATTRIBUTE_BACKGROUND], [15, 0]);
 });

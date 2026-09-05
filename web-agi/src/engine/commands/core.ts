@@ -69,6 +69,7 @@ export const CORE: Record<string, Handler> = {
   'load.view': () => {},
   'load.view.v': () => {},
   'discard.view': () => {},
+  'discard.view.v': () => {},
   'load.sound': () => {},
 
   // --- sound -------------------------------------------------------------
@@ -86,6 +87,20 @@ export const CORE: Record<string, Handler> = {
   },
   'set.horizon': (m, [y]) => {
     m.horizon = y!;
+  },
+
+  /**
+   * Move the priority bands.
+   *
+   * The one command M18 implemented that no game here can reach -- it arrived
+   * in AGI 2.936, and the two interpreters in this repository are 2.440 and
+   * 2.917. It is implemented anyway, and the bands generalised for it, because
+   * of how it fails when it is not: a script calling a missing command is
+   * counted and reported, while a script whose bands were never moved draws
+   * every sprite in the wrong one and reports nothing. See `priorityForRow`.
+   */
+  'set.pri.base': (m, [base]) => {
+    m.priorityBase = base!;
   },
   'prevent.input': (m) => {
     m.inputAccepted = false;

@@ -224,14 +224,15 @@ test('unimplemented commands are counted rather than fatal', () => {
   m.setHandlers(buildHandlers());
 
   const handlers = buildHandlers();
-  // An opcode past everything the 2.440 interpreter knows: nothing can ever
-  // implement it, so it stays the honest example of an unimplemented command.
-  const unknown = 0xaa;
-  handlers[unknown]!(m, [1]);
-  handlers[unknown]!(m, [1]);
+  // `set.simple` is the first opcode past everything the 2.440 interpreter
+  // knows. M18 gave it its name; nothing here implements it, so it stays the
+  // honest example of a command reached and not done.
+  const unimplemented = 0xaa;
+  handlers[unimplemented]!(m, [1]);
+  handlers[unimplemented]!(m, [1]);
 
-  assert.equal(m.stubs.get('unknown170'), 2, 'counted every time');
-  assert.deepEqual(reached, ['unknown170'], 'reported once');
+  assert.equal(m.stubs.get('set.simple'), 2, 'counted every time');
+  assert.deepEqual(reached, ['set.simple'], 'reported once');
 });
 
 // --- Control flow ----------------------------------------------------------

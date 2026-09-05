@@ -23,7 +23,26 @@
  */
 
 /** Where the captures live, relative to the package. */
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 export const CAPTURE_DIR = 'screenshots-from-original';
+
+/**
+ * Where the captures are, as an absolute path.
+ *
+ * From this file rather than from the game directory. It used to be reached by
+ * walking up from `public/game`, and when M18 turned that into
+ * `public/games/lsl1` the walk landed a directory short -- so these tests
+ * stopped running and said nothing, because a capture-dependent test that
+ * cannot find the captures skips. Anchored here it moves with nothing.
+ */
+export const CAPTURES_AT = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  CAPTURE_DIR,
+);
 
 /**
  * The three captures whose room is identified beyond doubt.

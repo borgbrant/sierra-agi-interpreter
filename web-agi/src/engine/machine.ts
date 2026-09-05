@@ -6,7 +6,7 @@
  * abandons the rest of the cycle, `quit` stops the engine, and `return` ends
  * only the script that issued it.
  */
-import { decodeLogic, type Condition, type Instruction } from '../logic/reader.ts';
+import { decodeLogic, DEFAULT_COMMAND_COUNT, type Condition, type Instruction } from '../logic/reader.ts';
 import { parseLogic, type LogicResource } from '../logic/resource.ts';
 import type { ResourceManager } from '../resources/manager.ts';
 import type { SaveStore } from '../storage/saves.ts';
@@ -19,8 +19,8 @@ import { Keyboard } from '../input/keyboard.ts';
 import { parseInput, saidMatches, type ParsedWord } from '../input/parser.ts';
 import { Prompt } from '../input/prompt.ts';
 import {
-  DEFAULT_BACKGROUND_COLOUR,
-  DEFAULT_TEXT_COLOUR,
+  DEFAULT_ATTRIBUTE_BACKGROUND,
+  DEFAULT_ATTRIBUTE_FOREGROUND,
   TextLayer,
   type TextWindow,
 } from '../render/text.ts';
@@ -33,7 +33,13 @@ import { Inventory } from './inventory.ts';
 import { defaultLayout, type ScreenLayout } from './layout.ts';
 import { CommandLine, KeyPress, type Interaction, type Key } from './interaction.ts';
 import { KeyBindings, MenuBar } from './menu.ts';
-import { checkFooting, noBlock, priorityForRow, type Block } from './motion.ts';
+import {
+  checkFooting,
+  DEFAULT_PRIORITY_BASE,
+  noBlock,
+  priorityForRow,
+  type Block,
+} from './motion.ts';
 import { FLAG, GameState, MAX_SOUND_VOLUME, SOUND_GENERATOR_VALUE, VAR } from './state.ts';
 import { ViewTable, type View, type ViewObject } from './viewtable.ts';
 
@@ -120,6 +126,14 @@ export interface MachineOptions {
   sound?: SoundPlayer;
   /** Called the first time each unimplemented command is reached. */
   onStub?: (name: string) => void;
+  /**
+   * How many action opcodes the game's own interpreter defines.
+   *
+   * From `resources/interpreter.ts`, which reads it out of AGIDATA.OVL.
+   * Omitted, the bundled game's count is used, which is what every milestone
+   * before M18 did unconditionally.
+   */
+  commandCount?: number;
 }
 
 export class Machine {
@@ -134,6 +148,25 @@ export class Machine {
   readonly resources: ResourceManager;
   readonly objects: ObjectFile;
   readonly vocabulary: Vocabulary | undefined;
+
+  /**
+   * The row the priority bands start at.
+   *
+   * `set.pri.base` moves it. Part of the snapshot, because a saved game
+   * restored into the default bands would draw every sprite in the wrong one
+   * and say nothing -- the same class of defect M8's round-trip test exists to
+   * catch.
+   */
+  priorityBase = DEFAULT_PRIORITY_BASE;
+
+  /**
+   * How many action opcodes this game's interpreter defines.
+   *
+   * The bytecode reader refuses anything above it, which is what keeps a script
+   * decoding as instructions rather than walking off into its own message
+   * section. See `resources/interpreter.ts`.
+   */
+  readonly commandCount: number;
 
   /** Commands reached but not yet implemented, and how often. */
   readonly stubs = new Map<string, number>();
@@ -213,8 +246,8 @@ export class Machine {
   parsedWords: ParsedWord[] = [];
 
   /** Colours the text commands draw in. */
-  textForeground = DEFAULT_TEXT_COLOUR;
-  textBackground = DEFAULT_BACKGROUND_COLOUR;
+  textForeground = DEFAULT_ATTRIBUTE_FOREGROUND;
+  textBackground = DEFAULT_ATTRIBUTE_BACKGROUND;
 
   /** What the game is waiting for, or null when it is running. */
   pending: Interaction | null = null;
@@ -305,6 +338,7 @@ export class Machine {
     this.vocabulary = options.vocabulary;
     this.inventory = new Inventory(options.objects);
     this.sound = options.sound ?? new SoundPlayer();
+    this.commandCount = options.commandCount ?? DEFAULT_COMMAND_COUNT;
     this.#onStub = options.onStub;
   }
 
@@ -365,7 +399,7 @@ export class Machine {
     if (cached) return cached;
 
     const resource = parseLogic(this.resources.loadSync('logic', id));
-    const instructions = decodeLogic(resource.bytecode);
+    const instructions = decodeLogic(resource.bytecode, this.commandCount);
 
     const indexAt = new Map<number, number>();
     instructions.forEach((instruction, index) => indexAt.set(instruction.at, index));
@@ -630,7 +664,7 @@ export class Machine {
   #flag(index: number): boolean {
     if (index === FLAG.EGO_ON_WATER || index === FLAG.EGO_TOUCHED_SIGNAL) {
       const ego = this.viewTable.ego;
-      const priority = ego.fixedPriority ? ego.priority : priorityForRow(ego.y);
+      const priority = ego.fixedPriority ? ego.priority : priorityForRow(ego.y, this.priorityBase);
       const footing = checkFooting(this.background, ego, priority);
       this.state.setFlag(FLAG.EGO_ON_WATER, footing.water);
       this.state.setFlag(FLAG.EGO_TOUCHED_SIGNAL, footing.signal);
@@ -1047,8 +1081,8 @@ export class Machine {
     // for its rows again, and the game does: logic 51 calls configure.screen
     // during start-up.
     this.layout = defaultLayout();
-    this.textForeground = DEFAULT_TEXT_COLOUR;
-    this.textBackground = DEFAULT_BACKGROUND_COLOUR;
+    this.textForeground = DEFAULT_ATTRIBUTE_FOREGROUND;
+    this.textBackground = DEFAULT_ATTRIBUTE_BACKGROUND;
     this.window = null;
     this.pending = null;
 

@@ -9,10 +9,12 @@
  * offered a graphics-mode toggle -- and the three draw in sixteen colours, in
  * four, and at 720x348 in two.
  *
- * Three modes rather than the original's four. A PCjr would be the one entry
- * that could never look different from another, and its only script-visible
- * effect belongs to a *computer* rather than a monitor; `engine/hardware.ts`
- * records what that costs.
+ * Four entries for three adapters. A PCjr is not among them: it would be the
+ * one entry that could never look different from another, and its only
+ * script-visible effect belongs to a *computer* rather than a monitor;
+ * `engine/hardware.ts` records what that costs. What is among them is a CGA
+ * twice -- once on an RGB monitor and once on a composite one, which is a
+ * different picture from the same pixels.
  *
  * The two sound controls are real. The chip switch changes what is played --
  * one voice or four -- and what the scripts are told they are being played on;
@@ -25,6 +27,7 @@ import type { GraphicsMode, Settings } from './settings.ts';
 export const GRAPHICS_MODES: { value: GraphicsMode; label: string }[] = [
   { value: 'ega', label: 'EGA' },
   { value: 'cga', label: 'CGA' },
+  { value: 'composite', label: 'CGA composite' },
   { value: 'hercules', label: 'Hercules' },
 ];
 
@@ -38,6 +41,7 @@ export const GRAPHICS_MODES: { value: GraphicsMode; label: string }[] = [
 const GRAPHICS_NOTE: Record<GraphicsMode, string> = {
   ega: 'sixteen colours, and the game laid out for a colour screen',
   cga: 'four colours, and the sixteen reached by dithering pairs of pixels',
+  composite: 'the same card in 640x200, on a television: four pixels are one colour cycle, and sixteen colours come back',
   hercules: '720x348 in two colours, and the command line in a box over the scene',
 };
 

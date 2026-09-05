@@ -19,12 +19,13 @@ import type { SoundChip } from '../src/audio/output.ts';
 import { buildHandlers } from '../src/engine/commands/index.ts';
 import { Cycle } from '../src/engine/cycle.ts';
 import { COMPUTER, MONITOR } from '../src/engine/hardware.ts';
-import { DEFAULT_LAYOUT } from '../src/engine/layout.ts';
+import { DEFAULT_LAYOUT, pictureRow } from '../src/engine/layout.ts';
 import { Machine } from '../src/engine/machine.ts';
 import { StringQuestion } from '../src/engine/interaction.ts';
 import { buildFrame } from '../src/engine/present.ts';
 import { applySnapshot, captureSnapshot } from '../src/engine/snapshot.ts';
 import { VAR } from '../src/engine/state.ts';
+import { PICTURE_HEIGHT } from '../src/render/screens.ts';
 import type { DisplayMode } from '../src/render/drivers/driver.ts';
 import { Frame } from '../src/render/frame.ts';
 import { ResourceManager } from '../src/resources/manager.ts';
@@ -105,6 +106,33 @@ test('the game asks for a screen layout, and gets the one it asks for', () => {
   for (let i = 0; i < 40; i++) if (!cycle.runOnce()) break;
 
   assert.deepEqual(machine.layout, DEFAULT_LAYOUT);
+});
+
+test('the picture goes where the play window starts', () => {
+  // M11 made configure.screen real and left the picture out of it, on the
+  // reading that AGI's picture window is fixed at rows 1-21. King's Quest I's
+  // title screen asks for `configure.screen(0, 21, 0)` and draws credits into
+  // a scroll in its own picture: with the picture pinned to row 1 it sat 8
+  // pixels below the text meant to land inside it, and the top row of credits
+  // cut a black band across the banner.
+  //
+  // The second number is the check. The input row is 21 when the play window
+  // starts at 0 and 22 when it starts at 1 -- the row immediately below a
+  // 168-line picture, in both cases.
+  const machine = new Machine({ resources, objects, vocabulary });
+
+  machine.layout = { minPrintRow: 1, inputRow: 22, statusRow: 0 };
+  assert.equal(pictureRow(machine.layout), 1);
+  assert.equal(pictureRow(machine.layout) * 8 + PICTURE_HEIGHT, 22 * 8, 'input row below it');
+
+  machine.layout = { minPrintRow: 0, inputRow: 21, statusRow: 0 };
+  assert.equal(pictureRow(machine.layout), 0);
+  assert.equal(pictureRow(machine.layout) * 8 + PICTURE_HEIGHT, 21 * 8, 'and again');
+
+  const rows = buildFrame(machine, 'visual')
+    .layers.filter((layer) => layer.kind === 'picture')
+    .map((layer) => layer.row);
+  assert.deepEqual(rows, [0], 'the frame puts the picture at the top');
 });
 
 test('the status line and the input line go where the game puts them', () => {

@@ -529,3 +529,43 @@ test('a snapshot from another game is refused', () => {
 
   assert.throws(() => applySnapshot(player.machine, stranger), SaveError);
 });
+
+test('the priority bands are part of the snapshot', () => {
+  // M18 made the bands movable, and anything a script can move has to survive
+  // a save: a game restored into the default bands would draw every sprite in
+  // the wrong one and report nothing, which is the class of defect the round
+  // trip exists to catch.
+  const m = new Player().machine;
+  m.priorityBase = 100;
+
+  const restored = new Player().machine;
+  applySnapshot(restored, captureSnapshot(m));
+
+  assert.equal(restored.priorityBase, 100);
+});
+
+test('a snapshot written before the bands could move restores into the default', () => {
+  const m = new Player().machine;
+  const snapshot: Partial<Snapshot> = { ...captureSnapshot(m) };
+  delete snapshot.priorityBase;
+
+  const restored = new Player().machine;
+  restored.priorityBase = 100;
+  applySnapshot(restored, snapshot as Snapshot);
+
+  assert.equal(restored.priorityBase, 48);
+});
+
+test('a new game starts white on black, whatever the last one left behind', () => {
+  // `set.text.attribute`'s default, which King's Quest I's title screen reads
+  // before setting it. Reset with everything else, so a second game started in
+  // the same tab does not inherit the first one's colours.
+  const player = new Player();
+  player.machine.textForeground = 6;
+  player.machine.textBackground = 7;
+
+  player.machine.resetForNewGame();
+
+  assert.equal(player.machine.textForeground, 15);
+  assert.equal(player.machine.textBackground, 0);
+});

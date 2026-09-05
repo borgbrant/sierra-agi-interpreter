@@ -89,7 +89,15 @@
  * still did the other thing.
  */
 
-/** Where the three tables sit in `AGIDATA.OVL`, and how big they are. */
+/**
+ * Where the three tables sit in the two copies of `AGIDATA.OVL` here.
+ *
+ * Recorded rather than assumed since M18. These are the offsets in Leisure Suit
+ * Larry's 2.440; in King's Quest I's 2.917 the same tables are 436 bytes
+ * higher, holding the same bytes. `render/agidata.ts` finds them by the
+ * signature this file's own comments argue the reading from, and these numbers
+ * are what that search agreed with.
+ */
 export const CGA_TABLES_AT = {
   /** Sixteen entries of three bytes: the fill patterns. */
   fill: 0x1b78,
@@ -98,6 +106,13 @@ export const CGA_TABLES_AT = {
   /** Sixteen nibbles, doubled: the 320x200 four-colour picture. */
   colour: 0x1bb8,
 } as const;
+
+/** Where a copy of these tables was found, as file offsets. */
+export interface CgaTableSites {
+  readonly fill: number;
+  readonly mono: number;
+  readonly colour: number;
+}
 
 export const CGA_FILL_STRIDE = 3;
 export const CGA_TABLE_ENTRIES = 16;
@@ -209,8 +224,11 @@ export const CGA_TABLES: CgaTables = {
  * they are 48 bytes apart in the file and there is no reason for them to agree
  * unless both have been read right. A file where they disagree is refused.
  */
-export function decodeCgaTables(bytes: Uint8Array<ArrayBufferLike>): CgaTables {
-  const end = CGA_TABLES_AT.colour + CGA_TABLE_ENTRIES;
+export function decodeCgaTables(
+  bytes: Uint8Array<ArrayBufferLike>,
+  sites: CgaTableSites = CGA_TABLES_AT,
+): CgaTables {
+  const end = sites.colour + CGA_TABLE_ENTRIES;
   if (bytes.length < end) {
     throw new CgaTableError(`AGIDATA.OVL is ${bytes.length} bytes; the tables end at ${end}`);
   }
@@ -218,13 +236,13 @@ export function decodeCgaTables(bytes: Uint8Array<ArrayBufferLike>): CgaTables {
   const nibbles = (at: number) =>
     [...bytes.subarray(at, at + CGA_TABLE_ENTRIES)].map((byte) => byte & 0x0f);
 
-  const colour = nibbles(CGA_TABLES_AT.colour);
-  const mono = nibbles(CGA_TABLES_AT.mono);
+  const colour = nibbles(sites.colour);
+  const mono = nibbles(sites.mono);
 
   const fill: [number, number][] = [];
   const monoFill: number[] = [];
   for (let entry = 0; entry < CGA_TABLE_ENTRIES; entry++) {
-    const at = CGA_TABLES_AT.fill + entry * CGA_FILL_STRIDE;
+    const at = sites.fill + entry * CGA_FILL_STRIDE;
     monoFill.push(bytes[at]! & 0x0f);
     fill.push([bytes[at + 1]! & 0x0f, bytes[at + 2]! & 0x0f]);
   }

@@ -140,7 +140,7 @@ interface ResourceSource {
 }
 ```
 
-v1 ships one implementation, `BundledSource`, which fetches from `public/game/`
+v1 ships one implementation, `BundledSource`, which fetches from `public/games/<id>/`
 using a manifest generated at build time (a directory listing is not available
 over HTTP). A `DirectorySource` backed by the File System Access API, or a
 `ZipSource`, would be later additions requiring no engine changes.
@@ -413,6 +413,27 @@ rows 1-21    picture area, 168 pixels tall
 rows 22-24   prompt and input line
 ```
 
+That is the layout the interpreter starts with, not a fixed one. `configure.screen`
+moves all of it, and **the picture moves with it**: its first argument is the top
+of the play window, and the picture is drawn there. A game that switches its
+status line off and asks for row 0 gets the picture at the very top of the
+screen and three and a half rows below it.
+
+King's Quest I does exactly that for its title screen —
+`configure.screen(0, 21, 0)` — and its game proper asks for
+`configure.screen(1, 22, 0)`. The input row is the check: 21 when the picture
+starts at 0, 22 when it starts at 1, which is the row immediately below a
+168-line picture in both cases.
+
+`show.pic` clears the text under the picture and nothing else. AGI has one
+framebuffer, so publishing the picture writes over whatever was on it — but only
+where it lands, which is the twenty-one rows from the play window's top. A game
+may print below the picture and then show it, and King's Quest I does: its
+copyright and "Press any key to continue." go on rows 22 and 24 before
+`show.pic`. Games clear those rows themselves — Larry calls
+`clear.lines(22, 24, 0)` at the top of several rooms — which is what they must
+do if the picture cannot reach them.
+
 Text uses the standard 8x8 IBM PC font. The engine embeds a font bitmap as a
 build asset; it is not read from the game files.
 
@@ -467,6 +488,15 @@ character standing next to it.
 
 All of these suspend the game cycle while open, which the loop must model
 explicitly rather than by blocking.
+
+**Two defaults, and they are opposites.** A message window is black on white —
+the box the original draws over the picture, whatever colours the game has set.
+The *text attribute*, which `display` writes with and which the menu bar and the
+inventory screen are drawn in, starts white on black; `set.text.attribute`
+changes it and games restore it to `(15, 0)` when they are done. Confusing the
+two put a white box over King's Quest I's title scroll, whose interior the
+picture paints black, because that game sets the attribute exactly once in
+ninety scripts and its title screen runs before it.
 
 ## Input and the parser
 
@@ -588,14 +618,18 @@ the teardown, because scheduled audio otherwise outlives the room that started
 it — and each of those paths sets the waiting script's flag, for the same reason
 `stop.sound` does.
 
-## The graphics modes (M10-M16)
+## The graphics modes (M10-M16, M19)
 
 The original shipped four display drivers and the game still carries them:
 `EGA_GRAF.OVL`, `CGA_GRAF.OVL`, `JR_GRAF.OVL` and `HGC_GRAF.OVL`, with a
 `HGC_FONT` and a pair of `*_OBJS` overlays beside them. The engine now draws
-through a driver and the shell chooses which — **three modes, not four**, and
-all three draw in their own colours at their own size. This is what the other
-two mean, and why there is no third.
+through a driver and the shell chooses which — **three adapters, not four**, and
+each draws in its own colours at its own size. This is what the other two mean,
+and why there is no third.
+
+Four entries in the shell's list, though, because one of the three is offered
+twice: a CGA on an RGB monitor and a CGA on a composite one are the same card
+and a different picture. See *The composite monitor (M19)*.
 
 Four *drivers*, though, because CGA has two: `CGA_GRAF.OVL` has a 320x200
 four-colour mode and a 640x200 two-colour one, and the game switches between
@@ -614,6 +648,8 @@ file all along.
 ```text
 EGA        16 colours, 160x168 doubled to 320
 CGA        4 colours, with the 16 reached by dithering pairs of pixels
+composite  the same card in 640x200, decoded as NTSC: four pixels are one
+           colour cycle, so the interpreter's own patterns are colours again
 Hercules   two colours at 720x348, an 18x12 cell, and a screen with no room
            at the bottom for a command line
 ```
@@ -777,6 +813,48 @@ a boundary count measures an outline's perimeter while the object is its area.
 What each mapping costs is recorded beside it and recomputed by a test, so
 changing it is a decision with a number attached rather than a matter of taste.
 
+### The composite monitor (M19)
+
+The fourth entry in the shell's list is not a fourth adapter. It is the CGA
+again, in the 640x200 two-colour mode `Ctrl-R` asks for, on a composite monitor
+instead of an RGB one — and on that monitor the picture comes back in colour.
+
+The reason is arithmetic. A CGA's pixel clock is four times the NTSC colour
+subcarrier, so **four pixels are one colour cycle** and the pattern in them is a
+hue and a luminance. AGI's two-colour table gives each of its sixteen colours a
+four-pixel pattern of its own — M16 found it at `0x1ba8` and proved it is a
+permutation of all sixteen nibble values, which is a stronger property than
+dithering needs and exactly what sixteen artefact colours require.
+
+`engine/hardware.ts` had the other half of it already: the game offers "Graphics
+Mode <Ctrl-R>" on CGA and nowhere else, which is a thing only a composite screen
+has any use for.
+
+The driver is `CgaMonoDriver` with a demodulator over its scanlines — the same
+class, extended, because the card really is the same. Luma is the mean over one
+colour cycle, chroma is two cycles projected onto the subcarrier through a Hann
+window, and YIQ becomes RGB through the standard matrix. Because the filter is
+wider than one cycle, a colour boundary fringes, which is what composite looks
+like and what a per-group palette lookup would miss.
+
+One number is fitted and it is the burst phase: nothing in any file records it,
+so it is the angle that puts the sixteen decoded patterns nearest the palette's
+own hues, 316°. What that recovers:
+
+```text
+black and white   exact
+the two greys     both grey, and identical — 0101 and 1010 differ only in
+                  phase, the one thing a composite monitor cannot see
+light and dark    all four three-bit patterns brighter than all four one-bit
+                  ones, without exception
+the hues          8 of the 12 chromatic colours within 30° of their own,
+                  mean error 27°; light magenta is 83° out and stays recorded
+```
+
+So this mode is a simulation in the way Hercules' phosphor is, and further from
+its files than any other driver here — but not an invention: every pixel it
+decodes was put on the screen by the interpreter's own table.
+
 ### Hercules, and what photographs settled
 
 Its geometry is arithmetic once the photographs are read. The adapter is
@@ -903,12 +981,23 @@ letterforms are the original's and so is the dither table; what is left is
 smaller than it was:
 
 ```text
-how sprites are drawn     through the picture's own table, where the original
-                          had HGC_OBJS.OVL to do it. Nothing here has read that
-                          overlay, and the captures cannot settle it: the
-                          hatched objects in them turned out to be brown in the
-                          room's composed screen, which the picture table
-                          already explains
+a sprite's dither phase   HGC_OBJS.OVL has been read now, and it settles most
+                          of this row: sprites *are* dithered with the picture's
+                          own table, from the same 128 bytes and the same
+                          colour * 8 + phase * 2 index. What differs is where
+                          the phase comes from. The picture blit takes it from
+                          the AGI row; the object blit takes it from the cel's
+                          own row counter, which starts at the cel's height and
+                          counts down -- so on the original a sprite's dither is
+                          anchored to the sprite, offset by its height, and runs
+                          down the cel in the opposite direction. This engine
+                          composites cels into the screen before the driver sees
+                          them, so its sprites are in phase with the background
+                          instead. M18 worked out what closing it would take
+                          -- a phase plane beside the visual and priority ones
+                          -- and declined it: a third plane through the frame
+                          and a fourth thing to save, for a difference no
+                          capture here shows
 the status bar's band      its lit background is twelve device rows of the
                           fourteen-row cell, measured off the captures while
                           calibrating them; this engine fills the whole cell,
@@ -924,8 +1013,8 @@ without the two files     the engine's own 8x8 font in a 16x14 cell, and the
                           more visible of the two by far
 ```
 
-Each names what would close it: the object overlay, a line in the text path, a
-fact that may not be recorded anywhere, and nothing at all. **The mode can be
+Each names what would close it: the seam, a line in the text path, a fact that
+may not be recorded anywhere, and nothing at all. **The mode can be
 improved further**, and none of it needs the engine rearranged — a better table
 is a better table behind the same seam. [plan.md](plan.md) records what each
 attempt was and why it was replaced, including the two tables that were guessed
@@ -1056,24 +1145,56 @@ reaches. *The page around it (M17)* says what that costs and what it decided.
 
 ## Application shell
 
+### Which game (M18)
+
+Two games are bundled, and the first thing the page does is ask which. The
+picker takes the stage — the space the canvas will have — and lists what
+`games/index.json` holds: each game's title, the AGI version its own
+`AGIDATA.OVL` names, and how much there is to load. That index is the only
+thing fetched before a choice is made, a couple of hundred bytes against a
+game's four megabytes, which is the whole reason the list is a file of its own.
+
+There is no default game. Picking one for the player would be picking wrong for
+whoever wanted the other, so the question is asked and waited on; the only thing
+that skips it is a build with a single game in it. The answer is remembered, so
+a second visit starts where the last one left off, and *Change game* forgets it
+and reloads.
+
+A reload rather than a swap, and deliberately: a running game owns the machine,
+the view table, the sound and the renderer, and tearing all of that down safely
+is a milestone rather than a button. From the player's side the two are the same
+thing, and only one of them can leave a corner of one game's state inside
+another's.
+
+Saved games are already keyed by which game they belong to — the store's key is
+the fingerprint of the loaded resources — so two games' saves cannot collide.
+The display and sound settings are shared, because they are about the machine
+rather than about the game.
+
+### The rest of it
+
 Deliberately thin: a page holding the canvas, a title, an error surface, and a
 row of controls for the things the player chooses rather than the game.
 
-Three controls, and every one of them does something:
+Three settings and, since M18, the game itself — four things the player chooses
+and the game does not, and every one of them does something:
 
 ```text
-Graphics    EGA / CGA / Hercules      a driver each, and the scripts told
-                                      which; all three draw in their own
-                                      colours, at their own size
+Graphics    EGA / CGA / CGA composite a driver each, and the scripts told
+            / Hercules                which; all four draw in their own
+                                      colours, at their own size, and the two
+                                      CGAs are one card on two monitors
 Sound chip  PC speaker / PCjr         wired: one voice, or four
 Sound on    on / off                  wired: the game's own sound flag
+Change game which of the bundled games  forgets the choice and reloads into
+                                        the picker; see *Which game* above
 ```
 
 The graphics choice is two things at once — what the game is drawn in, and what
-the game is *told* it is being drawn on — and both halves are real for all three
-modes. A game told it is on a mono screen lays its opening out for one and gets
+the game is *told* it is being drawn on — and both halves are real for every
+entry. A game told it is on a mono screen lays its opening out for one and gets
 its command line in a box; one told it is on CGA is offered a graphics-mode
-toggle.
+toggle, which is the menu item the composite entry exists for.
 
 The two sound controls are wired. The chip switch changes what is played and
 what the scripts are told they are being played on, through one entry point so
@@ -1209,7 +1330,7 @@ only the final blit needs a canvas.
 
 ## Milestones
 
-Each milestone ends with something observable, not just code. M0-M17 are done.
+Each milestone ends with something observable, not just code. M0-M19 are done.
 The numbering is the one [plan.md](plan.md)
 works to, and that document records what each one turned out to need --
 including where it contradicted what was written here first.
@@ -1316,6 +1437,33 @@ M17 The page, designed
     within 14% of each other's height wherever Hercules can reach a whole
     multiple, the palette following the viewer's light or dark setting,
     and not one control added or removed.
+
+M18 The next game
+    The four things the engine assumes about *this* copy of the
+    interpreter: the version, the command count, the offsets of the four
+    dither tables in AGIDATA.OVL, and the priority bands. Each becomes
+    something read or something a script can set. `HGC_OBJS.OVL` and
+    `IBM_OBJS.OVL` are what prompted it; King's Quest I, which is AGI
+    2.917, is what measured it -- it ran already, and its Hercules screen
+    was noise, because 0x1bea in its data file is a printf string that
+    this engine read as a dither table and did not question.
+    Ends with: the tables found by an anchor that cannot be ambiguous and
+    refused when they are not there, the version read from the file that
+    names it, the priority bands a rule with a base that is saved with
+    the game, the twelve opcodes above 0xA9 named, every one of this
+    game's golden tests unchanged, and King's Quest I's first room
+    legible in EGA, CGA and Hercules from its own files.
+
+M19 The composite monitor
+    A fourth entry in the shell's list and the third adapter's second
+    monitor: the CGA in 640x200, decoded as NTSC. Four pixels are one
+    colour cycle, and M16's two-colour table -- a permutation of all
+    sixteen nibble values -- turns out to be sixteen artefact colours.
+    Ends with: composite in the list beside EGA, CGA and Hercules; every
+    pixel of it the two-colour driver's own; black, white and the greys
+    exact; eight of the twelve hues within 30 degrees of their own and
+    the outlier recorded; and colour fringing at boundaries, because the
+    chroma filter is wider than a colour cycle.
 ```
 
 ```text
@@ -1325,7 +1473,77 @@ M1  complete    M5  complete    M9  complete     M13 complete
 M2  complete    M6  complete    M10 complete     M15 complete
 M3  complete    M7  complete    M11 complete     M16 complete
                                                  M17 complete
+                                                 M18 complete
+                                                 M19 complete
 ```
+
+## What the engine takes from the game, and from beside it (M18)
+
+The engine holds no game-specific code: no room numbers, no view numbers, no
+game ids, and no loader that knows which game it is loading. The three rules the
+interpreter needed that the AGI documentation does not state, and the fourth
+that M17 found, all went into the engine rather than into a special case. So
+King's Quest I — a different game built with a different interpreter, AGI 2.917
+against Larry's 2.440 — opened, decoded, ran to its first room and let its ego
+walk before M18 changed anything.
+
+What did not survive the second game was everything the engine had learned about
+the *interpreter* beside the first one.
+
+```text
+the version            read from the game's own AGIDATA.OVL, which prints it as
+                       `Version 2.440` / `Version 2.917`. The command count the
+                       bytecode reader accepts follows from it, and a version
+                       this engine has no count for keeps the bundled game's
+                       rather than inventing one. Insurance rather than a
+                       repair: all 90 of King's Quest I's scripts decode at
+                       2.440's count, using nothing above opcode 162
+the dither tables      one block of 242 bytes — CGA's three tables and
+                       Hercules' — found rather than assumed. In Larry's copy it
+                       is at 0x1b78 and in King's Quest I's at 0x1d2c, and the
+                       bytes are identical: the tables belong to the interpreter
+                       and did not change between the two versions. What lies at
+                       0x1bea in King's Quest I is a printf format string, and
+                       reading it as a table put black at 33/64 and white at
+                       0/64 — its Hercules screen was noise until M18
+the priority bands     a base and an arithmetic rule rather than the constants
+                       48 and 12, so `set.pri.base` can move them. The base is
+                       part of the snapshot, because a game restored into the
+                       wrong bands draws every sprite in the wrong one and says
+                       nothing
+the commands           every action in the table has a handler or a counted
+                       stub, and the twelve opcodes above 2.440's count have
+                       their specification names. A missing command is reported
+                       on the developer surface, which is the honest failure;
+                       the band base above is the one that would have been
+                       silent, which is why it is a rule and not a stub
+```
+
+**How the tables are found.** The anchor is the CGA two-colour table: its
+sixteen low nibbles are a permutation of the sixteen values, which only a
+one-bit dither is shaped like, and the fill table's first column repeats it 48
+bytes earlier. That pair occurs exactly once in each file. The Hercules table
+cannot anchor itself — it begins with eight zero bytes and ends with eight 0xff
+ones, and so do its neighbours, so its own shape matches at four consecutive
+offsets and at runs of zeros elsewhere — so it is taken at its distance from the
+anchor and then confirmed: black draws nothing, white draws all sixty-four, and
+the sixteen densities are more than a handful of values. A file that fails any
+of it keeps the tables the engine ships, and says so.
+
+**What the object overlays settle.** `IBM_OBJS.OVL` writes only the
+interpreter's own screen buffer and leaves the device update to the GRAF blit,
+so on EGA and CGA a sprite goes through the picture's own path — which is what
+this engine does already, by compositing cels before a driver sees them.
+`HGC_OBJS.OVL` writes both, and takes its dither phase from the cel's row
+counter rather than from the AGI row.
+
+M18 declined that last difference, and recorded the mechanism rather than
+leaving it an open option. A phase *plane* would carry it — a byte per pixel
+beside the visual and priority ones, written by the sprite compositor and read
+by the Hercules driver — at the cost of a third plane through the frame, a
+fourth thing to save and restore, and a rule only one of three drivers reads.
+No capture here shows the difference and neither game's playability touches it.
+It stays the one entry in *Hercules is a simulation* that a file could close.
 
 ## Later phases
 

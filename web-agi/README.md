@@ -17,26 +17,30 @@ in a test without a browser.
 
 - Node.js 22 or newer. The tests run TypeScript directly through `node --test`,
   which needs Node's own type stripping.
-- A copy of an AGI v2 game. **None is included** — the resource files are
-  copyrighted, and `web-agi/public/game/` is deliberately git-ignored.
+- A copy of an AGI v2 game — one or more. **None is included** — the resource
+  files are copyrighted, and `web-agi/public/games/` is deliberately
+  git-ignored.
 
 ## Where the game files go
 
 Two directories, and it is worth being clear about which is which:
 
 ```text
-agi-extract/data/       <- you put the game here (the source; any layout)
-web-agi/public/game/    <- game:sync writes here (the served copy; generated)
+agi-extract/data/<id>/   <- you put each game here (the source; any layout)
+web-agi/public/games/    <- game:sync writes here (the served copy; generated)
 ```
 
 Both paths are relative to the repository root, and both are git-ignored.
 
-**The source.** Drop your copy of the game into `agi-extract/data/` — the whole
-DOS directory is fine, extra files and subdirectories are ignored. That is the
-directory `game:sync` reads when given no argument, and keeping the game there
-means the sibling `agi-extract` CLI can be pointed at the same copy
-(`--input agi-extract/data`) rather than a second one. Any other directory works
-if you pass it to the sync script.
+**The source.** Drop each copy into its own directory under
+`agi-extract/data/` — `data/lsl1`, `data/kq1`, and so on. The whole DOS
+directory is fine, extra files are ignored, and the directory's name becomes the
+game's id in the served copy. `game:sync` with no argument looks for `lsl1` and
+`kq1`; one that is not there is reported and skipped, so a machine with one game
+syncs one game. Any other directory works if you pass it to the script.
+
+Keeping them there means the sibling `agi-extract` CLI can be pointed at the
+same copy (`--input agi-extract/data/lsl1`) rather than a second one.
 
 File names are matched case-insensitively, so an uppercase, lowercase or
 mixed-case dump all work. These must be present:
@@ -52,11 +56,16 @@ The DOS executables and the CGA/Hercules overlays (`AGI`, `LL.COM`,
 `*_GRAF.OVL`, …) are not needed and are not copied. If anything on the list is
 missing, the sync script says which before copying anything.
 
-**The served copy.** `web-agi/public/game/` is generated — never edit or commit
-it. Vite serves it at `/game/`, and the browser has no directory listing, so the
-script also writes a `manifest.json` there naming every file and its size. That
-manifest is how the app discovers which volumes exist; without it the engine
-cannot start. The copies are written with canonical uppercase names.
+**The served copy.** `web-agi/public/games/` is generated — never edit or commit
+it. Vite serves it at `/games/`, and the browser has no directory listing, so the
+script writes two kinds of manifest: `games/<id>/manifest.json` naming every file
+and its size, and `games/index.json` naming the games. The index is what the
+shell's picker is drawn from and the only thing fetched before a game is chosen;
+the manifests are how the app discovers which volumes exist. The copies are
+written with canonical uppercase names.
+
+Syncing one game leaves the others alone: the index keeps any game whose files
+are still on disk.
 
 ## Getting it running
 
@@ -67,8 +76,8 @@ npm install                          # from the repository root
 Then, from `web-agi/`:
 
 ```sh
-npm run game:sync                    # from ../agi-extract/data
-npm run game:sync -- /path/to/game   # or from anywhere else
+npm run game:sync                    # every game in ../agi-extract/data
+npm run game:sync -- /path/to/game   # or one from anywhere else
 ```
 
 or from the repository root:
@@ -93,7 +102,7 @@ npm run dev                          # http://localhost:5173
 ```
 
 The sync only has to be re-run when the game files change. **`npm test` needs it
-too** — the tests read the game straight from `public/game/` rather than over
+too** — the tests read the game straight from `public/games/lsl1/` rather than over
 HTTP, so they fail on a fresh clone until it has been run once.
 
 ## Scripts
@@ -104,7 +113,7 @@ npm run build        typecheck, then a production bundle in dist/
 npm run preview      serve the production bundle
 npm run typecheck    tsc --noEmit
 npm test             the whole suite, headless
-npm run game:sync    copy game files into public/game/ and write the manifest
+npm run game:sync    copy game files into public/games/ and write the manifests
 ```
 
 ## Playing
@@ -180,6 +189,7 @@ src/
     words.ts        WORDS.TOK: the vocabulary and its word numbers
     crypt.ts        AGI's cyclic-XOR obfuscation
     errors.ts       stable error codes, shared with agi-extract
+    interpreter.ts  the version AGIDATA.OVL says it is, and its command count
     summary.ts      what the app reports about the game it loaded
   logic/          LOGIC resources
     resource.ts     header split: bytecode vs message section
@@ -202,12 +212,14 @@ src/
     present.ts      composing a frame, in AGI's layer order
     commands/       the command table: core, graphics, objects, text, items
   render/         pixels, with no DOM
+    agidata.ts      finding the interpreter's dither tables in AGIDATA.OVL
     screens.ts      the 160x168 visual and priority buffers
     display.ts      the 320x200 framebuffer and the EGA palette
     renderer.ts     screens -> display
     sprite.ts       drawing a cel: transparency and the priority test
     font.ts         the embedded 8x8 font
     text.ts         character cells, windows, word wrap
+    drivers/        one per display: ega, cga, cgamono, composite, hercules
   input/
     keyboard.ts     key events -> engine keys, and the key state
     prompt.ts       the command line editor
@@ -258,7 +270,7 @@ golden tests   load the game, run a fixed number of cycles, hash the visual
                screen and compare
 ```
 
-The tests read the game from `public/game/` through `test/helpers/disk-source.ts`,
+The tests read the game from `public/games/lsl1/` through `test/helpers/disk-source.ts`,
 so `npm run game:sync` has to have been run first.
 
 The opcode table is the one piece of pure data that cannot be verified in

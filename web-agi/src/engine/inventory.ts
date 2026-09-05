@@ -14,6 +14,7 @@ import { COLUMNS, wrapText } from '../render/text.ts';
 import type { Cel } from '../render/sprite.ts';
 import { CARRIED, type ObjectFile } from '../resources/objects.ts';
 import { drawTextScreen, Interaction, type Key } from './interaction.ts';
+import { pictureRow } from './layout.ts';
 import type { Machine } from './machine.ts';
 import { VAR } from './state.ts';
 
@@ -184,7 +185,7 @@ export class ObjectCloseUp extends Interaction {
     // is and where the picture area starts are the driver's business -- the
     // original shipped a separate object-drawing overlay per adapter for
     // exactly this -- so the frame says "centred, this far down" and stops.
-    if (this.cel) frame.cel(this.cel, CLOSE_UP_TOP);
+    if (this.cel) frame.cel(this.cel, CLOSE_UP_TOP, pictureRow(machine.layout));
 
     lines.forEach((line, index) => {
       frame.text(line, 1, 1 + index, machine.textForeground, machine.textBackground);

@@ -21,7 +21,7 @@ import { Machine } from '../src/engine/machine.ts';
 import { FLAG, VAR } from '../src/engine/state.ts';
 import { CYCLE, DIRECTION, MOTION, ViewObject, type View } from '../src/engine/viewtable.ts';
 import { Keyboard } from '../src/input/keyboard.ts';
-import { CONTROL, PICTURE_WIDTH, Screens } from '../src/render/screens.ts';
+import { CONTROL, PICTURE_HEIGHT, PICTURE_WIDTH, Screens } from '../src/render/screens.ts';
 import { TRANSPARENT, type Cel } from '../src/render/sprite.ts';
 import { ResourceManager } from '../src/resources/manager.ts';
 import { parseObjectFile } from '../src/resources/objects.ts';
@@ -397,6 +397,39 @@ test('a moving object collides with a stopped object at its current base row', (
   mover.y = 102;
 
   assert.equal(collides(m.viewTable, mover), true);
+});
+
+test('the band formula agrees with the table it replaces, row for row', () => {
+  // M18 generalised priorityForRow for `set.pri.base`, and this is the check
+  // that the generalisation is the same rule: for every one of the picture's
+  // 168 rows, the formula at the default base returns what the hard-coded
+  // bands returned -- 4 above row 48, then ten bands of twelve, 5 to 14.
+  for (let y = 0; y < PICTURE_HEIGHT; y++) {
+    const hardCoded = y < 48 ? 4 : Math.min(15, Math.floor(y / 12) + 1);
+    assert.equal(priorityForRow(y), hardCoded, `row ${y}`);
+  }
+});
+
+test('set.pri.base moves the bands, and moves them for everything', () => {
+  const m = walkable();
+  const handlers = buildHandlers();
+
+  assert.equal(m.priorityBase, 48);
+  assert.equal(priorityForRow(60, m.priorityBase), 6);
+
+  handlers[0xae]!(m, [100]); // set.pri.base(100)
+
+  assert.equal(m.priorityBase, 100);
+  assert.equal(priorityForRow(60, m.priorityBase), 4, 'row 60 is above the base now');
+  assert.equal(priorityForRow(100, m.priorityBase), 5, 'and the first band starts there');
+  assert.equal(priorityForRow(167, m.priorityBase), 14, 'with the last band still 14');
+
+  // The bands are what an object standing on a row is drawn at, so moving them
+  // has to reach the object rather than only the function.
+  const object = standing(m, 0, 20, 60);
+  object.fixedPriority = false;
+  updatePositions(m);
+  assert.equal(object.priority, 4);
 });
 
 test('an object is only outside the screen when it does not fit', () => {

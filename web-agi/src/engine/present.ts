@@ -22,7 +22,7 @@
 import { Frame } from '../render/frame.ts';
 import type { Renderer, ScreenView } from '../render/renderer.ts';
 import { COLUMNS } from '../render/text.ts';
-import { PICTURE_ROW } from './layout.ts';
+import { pictureRow } from './layout.ts';
 import { DEFAULT_PROMPT } from '../input/prompt.ts';
 import type { Machine } from './machine.ts';
 import { FLAG, PROMPT_STRING, VAR } from './state.ts';
@@ -71,9 +71,12 @@ export function buildFrame(machine: Machine, view: ScreenView = 'visual'): Frame
     // Black behind the status line and the input area. The text layer draws
     // over both; this is what shows where it has written nothing.
     frame.fill(CHROME_COLOUR);
+    // Where the game asked for it. A game that switches the status line off
+    // and asks for the play window at row 0 gets the picture at the top of the
+    // screen, which is what King's Quest I's title screen does.
     frame.picture(
       view === 'visual' ? machine.screens.visual : machine.screens.priority,
-      PICTURE_ROW,
+      pictureRow(machine.layout),
     );
   }
 

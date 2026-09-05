@@ -20,9 +20,60 @@ export interface ManifestEntry {
 }
 
 export interface GameManifest {
+  /** The directory the game is served from, and how a choice is remembered. */
+  id?: string;
+  /** What to call it on the picker. */
+  title?: string;
+  /** Which AGI shipped with it, from the version line in AGIDATA.OVL. */
+  interpreter?: string;
   source: string;
   generated: string;
   files: ManifestEntry[];
+}
+
+/** One game on the picker, as `games/index.json` lists it. */
+export interface GameEntry {
+  id: string;
+  title: string;
+  interpreter?: string;
+  /** How much there is to load, for a picker that wants to say so. */
+  bytes?: number;
+}
+
+/** Where the bundled games live, under the app's base URL. */
+export const GAMES_BASE = 'games/';
+
+/**
+ * Which games this build was made with.
+ *
+ * The one thing fetched before the player has chosen anything, and small: a
+ * couple of hundred bytes against the four megabytes a game costs. That is the
+ * whole reason the picker is a separate file rather than a field in a manifest
+ * -- choosing has to happen before the choice is loaded.
+ */
+export async function listGames(baseUrl = GAMES_BASE): Promise<GameEntry[]> {
+  const url = `${baseUrl}index.json`;
+
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch (cause) {
+    throw new ResourceError(ERROR_CODES.MANIFEST_NOT_FOUND, `Cannot fetch ${url}`, { cause });
+  }
+  if (!response.ok) {
+    throw new ResourceError(
+      ERROR_CODES.MANIFEST_NOT_FOUND,
+      `Cannot fetch ${url}: HTTP ${response.status}. Run npm run game:sync`,
+    );
+  }
+
+  const index = (await response.json()) as { games?: GameEntry[] };
+  const games = (index.games ?? []).filter((game) => typeof game.id === 'string');
+  if (games.length === 0) {
+    throw new ResourceError(ERROR_CODES.MANIFEST_NOT_FOUND, `${url} lists no games`);
+  }
+
+  return games;
 }
 
 /**
@@ -44,10 +95,24 @@ export class BundledSource implements ResourceSource {
     this.#names = new Map(manifest.files.map((f) => [f.name.toUpperCase(), f.name]));
   }
 
+  /** The game this source is serving, from its own manifest. */
+  get id(): string {
+    return this.manifest.id ?? '';
+  }
+
+  /**
+   * Open one of the bundled games by its id.
+   *
+   * @param id the directory name under `games/`, as `index.json` lists it
+   */
+  static async forGame(id: string): Promise<BundledSource> {
+    return BundledSource.load(`${GAMES_BASE}${id}/`);
+  }
+
   /**
    * @param baseUrl directory holding the game files and their manifest
    */
-  static async load(baseUrl = 'game/'): Promise<BundledSource> {
+  static async load(baseUrl: string): Promise<BundledSource> {
     const base = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
     const url = `${base}manifest.json`;
 

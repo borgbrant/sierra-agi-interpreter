@@ -110,6 +110,49 @@ const STYLE = `
   .shell__header,
   .shell__chrome { padding-inline: clamp(var(--space-3), 3vw, var(--space-5)); }
 
+  /* The picker takes the stage, because it is what the stage is for until
+     there is a game to put there. */
+  .shell__picker {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    height: fit-content;
+    width: min(560px, calc(100% - 2 * var(--space-4)));
+    display: grid;
+    gap: var(--space-3);
+    justify-items: center;
+  }
+  .shell__picker h2 {
+    margin: 0;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .shell__picker-list {
+    display: grid;
+    gap: var(--space-2);
+    width: 100%;
+  }
+  .shell__game {
+    display: grid;
+    gap: 2px;
+    justify-items: start;
+    text-align: left;
+    padding: var(--space-3);
+    border-radius: var(--radius);
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    cursor: pointer;
+  }
+  .shell__game:hover { border-color: var(--accent); }
+  .shell__game strong { font-size: var(--text-md); font-weight: 600; }
+  .shell__game span {
+    font: var(--text-xs)/1.4 var(--mono);
+    color: var(--ink-dim);
+  }
+
   /* Every row of chrome is height the canvas does not get, and the numbers
      are unforgiving: Hercules at 2x is 696 pixels tall, so on a 1440x900
      laptop the whole page around the stage has to fit in 204 of them or that
@@ -228,6 +271,10 @@ const STYLE = `
     gap: var(--space-1);
     justify-items: start;
   }
+  /* A group with nothing in it is not a group. The picker is up before any
+     control exists, and three headings over an empty row is the page
+     advertising things it has not got yet. */
+  .shell__group:has(.shell__group-body:empty) { display: none; }
   .shell__group-title {
     font-size: var(--text-xs);
     font-weight: 600;
@@ -428,9 +475,13 @@ export class Shell {
   /** Save-file actions, kept apart from runtime settings. */
   readonly saveTools: HTMLElement;
 
+  /** Which game is running, which is a choice made before it started. */
+  readonly gameTools: HTMLElement;
+
   /** Developer tools, hidden behind the developer panel. */
   readonly debugTools: HTMLElement;
 
+  #title!: HTMLElement;
   #status: HTMLElement;
   #help: HTMLElement;
   #log: HTMLElement;
@@ -476,9 +527,7 @@ export class Shell {
 
     // Something in the stage from the first paint of the page, because loading
     // the game takes long enough to look like nothing happening.
-    this.#loading = document.createElement('div');
-    this.#loading.className = 'shell__loading';
-    this.#loading.textContent = 'starting';
+    this.#loading = loadingElement();
     this.stage.append(this.#loading);
 
     const chrome = document.createElement('footer');
@@ -490,9 +539,13 @@ export class Shell {
     this.saveTools = document.createElement('div');
     this.saveTools.className = 'shell__group-body';
 
+    this.gameTools = document.createElement('div');
+    this.gameTools.className = 'shell__group-body';
+
     const controls = document.createElement('div');
     controls.className = 'shell__controls';
     controls.append(
+      controlGroup('Game', this.gameTools),
       controlGroup('The machine', this.settingsTools),
       controlGroup('Saved games', this.saveTools),
     );
@@ -503,7 +556,7 @@ export class Shell {
     const keyboard = document.createElement('p');
     keyboard.className = 'shell__keyboard';
     keyboard.textContent =
-      'This is a keyboard game: Larry is walked with the arrow keys and told what to do by typing. A phone can watch it, but not play it.';
+      'This is a keyboard game: the character is walked with the arrow keys and told what to do by typing. A phone can watch it, but not play it.';
 
     this.#errors = document.createElement('div');
     this.#errors.className = 'shell__errors';
@@ -521,11 +574,10 @@ export class Shell {
     const header = document.createElement('header');
     header.className = 'shell__header';
 
-    const title = document.createElement('h1');
-    title.className = 'shell__title';
-    const subtitle = document.createElement('span');
-    subtitle.textContent = 'in the Land of the Lounge Lizards';
-    title.append('Leisure Suit Larry ', subtitle);
+    // Named by whichever game is chosen; until then, by what this is.
+    this.#title = document.createElement('h1');
+    this.#title.className = 'shell__title';
+    this.#title.textContent = 'A Sierra AGI interpreter';
 
     const mark = document.createElement('p');
     mark.className = 'shell__mark';
@@ -536,10 +588,83 @@ export class Shell {
     // title around.
     const named = document.createElement('div');
     named.className = 'shell__named';
-    named.append(title, mark);
+    named.append(this.#title, mark);
 
     header.append(named, this.#status, this.#developer);
     return header;
+  }
+
+  /**
+   * Name the game on the page and in the browser's tab.
+   *
+   * Two games are bundled, so the title is the running game's rather than a
+   * constant: a tab saying Larry while King's Quest is on the screen is the
+   * kind of small lie that makes a page feel unfinished.
+   */
+  setTitle(title: string): void {
+    this.#title.replaceChildren(title);
+    document.title = `${title} / web-agi`;
+  }
+
+  /**
+   * Ask which game to play, and wait.
+   *
+   * Drawn in the stage, because the stage is what it is for until there is a
+   * game to put there. It resolves on a click and never on its own: there is
+   * no default game, and picking one for the player would be picking wrong for
+   * whoever wanted the other.
+   *
+   * @param games what `games/index.json` lists
+   * @param current the remembered choice, focused so Enter starts it again
+   */
+  chooseGame<T extends { id: string; title: string; interpreter?: string; bytes?: number }>(
+    games: readonly T[],
+    current?: string,
+  ): Promise<T> {
+    this.#loading?.remove();
+    this.#loading = null;
+
+    const picker = document.createElement('div');
+    picker.className = 'shell__picker';
+
+    const heading = document.createElement('h2');
+    heading.textContent = 'Choose a game';
+
+    const list = document.createElement('div');
+    list.className = 'shell__picker-list';
+
+    picker.append(heading, list);
+    this.stage.append(picker);
+
+    return new Promise<T>((resolve) => {
+      for (const game of games) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'shell__game';
+
+        const name = document.createElement('strong');
+        name.textContent = game.title;
+
+        const about = document.createElement('span');
+        about.textContent = [
+          game.interpreter ? `AGI ${game.interpreter}` : null,
+          game.bytes ? `${Math.round(game.bytes / 1024)} KiB` : null,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+
+        button.append(name, about);
+        button.addEventListener('click', () => {
+          picker.remove();
+          this.#loading = loadingElement();
+          this.stage.append(this.#loading);
+          resolve(game);
+        });
+
+        list.append(button);
+        if (game.id === current || (!current && list.childElementCount === 1)) button.focus();
+      }
+    });
   }
 
   /**
@@ -685,6 +810,14 @@ export function mountShell(root: HTMLElement): Shell {
   });
 
   return shell;
+}
+
+/** The stage's placeholder: a line of text and one moving bar. */
+function loadingElement(): HTMLElement {
+  const loading = document.createElement('div');
+  loading.className = 'shell__loading';
+  loading.textContent = 'starting';
+  return loading;
 }
 
 function controlGroup(title: string, body: HTMLElement): HTMLElement {
