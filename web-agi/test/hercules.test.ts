@@ -406,7 +406,7 @@ test('text takes the solid side of a dithered colour', () => {
  * The table above is a copy of the interpreter's; this is what the original's
  * own screen says about it.
  *
- * Skipped when `screenshots-from-original/` is absent, which is the normal case
+ * Skipped when `test/captures/` is absent, which is no longer the normal case
  * for a fresh clone: the captures are large and not this project's to
  * redistribute.
  *

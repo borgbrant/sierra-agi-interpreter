@@ -3421,3 +3421,102 @@ are answered here rather than edited into the milestones that recorded them:
   priority in the high nibble and the colour in the low one, 160 bytes to a row
   and 168 rows. This engine keeps the two in separate buffers, which is the
   same information with the packing undone.
+
+---
+
+## M20 — What the four-colour CGA actually draws — complete
+
+Not planned. It started as a report -- "I kings quest så verkar CGA
+ditheringen/coloring vara fel jämfört med orginalet" -- and the report was
+right. Two milestones had read the wrong table out of `AGIDATA.OVL`, and the
+mode nobody could check was the mode nobody had checked.
+
+### What the palette question turned out not to be
+
+The first suspicion was the palette, because M16 had recorded that CGA is the
+only mode with no photograph behind it. It survives, and is now measured rather
+than argued:
+
+```text
+the two BIOS calls in CGA_GRAF.OVL's mode set, run under DOSBox-X on
+machine=cga, with the BIOS's own copy of the register read back from 0040:0066
+
+  mode 4, then the game's two calls  ->  0x01   background 1 (blue),
+                                                intensity off, palette 0
+  mode 4, the two calls removed      ->  0x30   background 0 (black),
+                                                intensity on, palette 1
+```
+
+So `0x30` -- the cyan-and-magenta screen most CGA software shows -- is the
+*default*, and Sierra spends two BIOS calls getting away from it. The dark
+palette is deliberate. Corroborated from outside by nerdlypleasures.blogspot.com
+("The first 4-color drivers used the Red/Green/Brown palette") and, decisively,
+by four screenshots of the 1984 booter the user found: blue, green, red, orange.
+
+It also explains why an emulator is no help. ScummVM's AGI draws CGA as black,
+light cyan, light magenta and white through a dither table of its own invention.
+Nothing about it is this interpreter.
+
+### The defect, which was the table
+
+With the palette confirmed, the mismatch had a shape: every **solid** colour
+agreed -- grass solid green, sky solid blue, the banner solid red -- and every
+**mixed** one did not. That is a table fault, not a palette fault.
+
+Getting the truth needed the real interpreter. `agi-extract/data/kq1` is a
+complete 2.917 install, so it runs:
+
+```text
+dosbox-x machine=cga, KQ1.COM, autotype to room 1
+```
+
+On a CGA the game comes up in the *640x200 two-colour* mode, not the
+four-colour one -- which is worth recording on its own, because it means M19's
+composite monitor is what a CGA player saw by default, and our composite driver
+reproduces that screen closely. `Ctrl-R` reaches the four-colour mode; the menu
+does too, and autotype can press `esc` where it cannot press a chord.
+
+Sampling that screen back onto the CGA pixel grid and reading it against the
+game's own picture 1 gives the table directly, and it is not the table this
+engine used:
+
+```text
+                              agreement over 51,240 pixels
+the 16-byte table at 0x1bb8            16.4%      <- M16's reading, shipped
+the three-byte table at 0x1b78         99.05%     <- with a row phase
+```
+
+Every one of the sixteen matches the three-byte table at `0x1b78`, and the two
+four-colour nibbles in each entry are not two neighbouring pixels as M16 read
+them -- they are **two scanlines**. Even display rows take the second, odd rows
+the first. Correlation with row parity: 96%. With column parity: 50%, which is
+none.
+
+So the dither is a checkerboard. M12 drew one and argued for it; M16 replaced it
+with vertical stripes on the grounds that `CGA_GRAF.OVL` has no `and dx, 3`
+where `HGC_GRAF.OVL` does. The absence of that instruction was real and the
+conclusion drawn from it was wrong, which is the lesson worth keeping: a
+negative result about a disassembly is not a positive result about a screen.
+
+### What it bought
+
+```text
+                     before   after
+appearances              12      15   of sixteen colours
+collisions                3       1   only black and blue, both the background
+lost boundary pixels 30,549  27,614   of 277,937 the game draws
+```
+
+Dark grey, light red against light magenta, and yellow against white all came
+back. Yellow against white was worth 2,276 boundary pixels on its own; dark grey
+turned out to be worth 5, which is the sort of thing worth measuring rather than
+assuming.
+
+### What is left open
+
+What the 16-byte table at `0x1bb8` *is* for. It is a real table, it is 16 bytes,
+it decodes semantically under this palette, and the picture does not go through
+it. Nothing in this milestone settles that.
+
+And the capture is one screen of one game. `test/captures/kq1-cga-castle.png`
+is the first CGA reference this project has, against seven for Hercules.

@@ -69,7 +69,7 @@ import { Vocabulary } from '../src/resources/words.ts';
 import { DiskSource, GAME_DIR } from '../test/helpers/disk-source.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const CAPTURES = resolve(HERE, '..', 'screenshots-from-original');
+const CAPTURES = resolve(HERE, '..', 'test', 'captures');
 
 const COLOURS = 16;
 const NAMES = ['black', 'blue', 'green', 'cyan', 'red', 'magenta', 'brown', 'light grey',

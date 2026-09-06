@@ -59,10 +59,12 @@
  * green, yellow solid brown, blue the background. Read the other way round
  * neither is sensible, and `0x1ba8` would make red green-and-background.
  *
- * ## Fills have a table of their own, and it is richer
+ * ## The three-byte table, which draws everything
  *
  * Entry 6 fills a region, and it builds its byte from a third table -- sixteen
- * entries of *three* bytes at `0x1b78`:
+ * entries of *three* bytes at `0x1b78`. M20 found this is the table the picture
+ * goes through as well, and that its two four-colour nibbles are two scanlines
+ * rather than two neighbouring pixels; see *The row phase* below:
  *
  * ```text
  * call the helper       al = table[colour*3 + 0]        when the flag is not 1
@@ -72,21 +74,39 @@
  * ```
  *
  * In the two-colour mode the helper returns one nibble and doubles it, and that
- * nibble is *the same value* `0x1ba8` holds -- which is what ties the three
- * tables together and says the reading is right. In the four-colour mode it
- * returns two different nibbles, so a fill alternates pattern between
- * neighbouring AGI pixels where the picture does not. That gives fills fifteen
- * distinct appearances where the picture has thirteen, and it is the original's
- * own inconsistency rather than this engine's.
+ * nibble is *the same value* `0x1ba8` holds -- which is what ties the tables
+ * together and says the reading is right. In the four-colour mode it returns
+ * two different nibbles, and M16 took those to be two neighbouring AGI pixels.
+ * They are two scanlines: the same colour drawn one row down uses the other
+ * one. Sixteen colours reach fifteen distinct appearances that way, against the
+ * twelve one nibble each would give.
  *
- * ## What is not in any of them
+ * ## The row phase, which the code hides and the screen shows
  *
- * A row phase. `HGC_GRAF.OVL` masks the row with `and dx, 3` and indexes an 8x8
- * cell with it; `CGA_GRAF.OVL` has no such instruction anywhere. So the
- * original's CGA dither is **vertical stripes, identical on every row**, where
- * M12 drew a checkerboard on the argument that two one-pixel stripes are the
- * same colour on average and a worse texture. That argument stands and the card
- * still did the other thing.
+ * The paragraph above is the reading M16 arrived at, and M20 measured it wrong.
+ * `HGC_GRAF.OVL` masks the row with `and dx, 3` and `CGA_GRAF.OVL` has no such
+ * instruction, from which M16 concluded there is no row phase and the dither is
+ * vertical stripes. There is one, and the screen is where it shows:
+ *
+ * ```text
+ * capture      the 2.917 interpreter itself under DOSBox-X on machine=cga,
+ *              switched into the four-colour mode, against King's Quest's
+ *              own picture 1
+ * the rule     the two nibbles of the three-byte entry are the two *rows*:
+ *              even display rows take byte 2, odd rows byte 1
+ * agreement    99.05% of 51,240 pixels
+ * the old rule the 16-byte table at 0x1bb8, one pattern a colour: 16.4%
+ * ```
+ *
+ * So a run of one colour is a **checkerboard**, which is what M12 drew before
+ * M16 replaced it with stripes, and the argument M12 made for it -- that two
+ * one-pixel stripes are the same colour on average and a worse texture -- was
+ * both right and what the card did.
+ *
+ * That also settles what `0x1b78` is. It is not a fill table as opposed to a
+ * picture table: it is *the* table, and a filled band and a drawn region of the
+ * same colour are the same texture. What the 16-byte table at `0x1bb8` is for
+ * is now an open question -- it is not the four-colour picture.
  */
 
 /**

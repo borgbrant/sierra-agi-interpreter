@@ -7,7 +7,7 @@
  * settle which is which -- so the assignment is an argument on screen rather
  * than a paragraph in a comment.
  *
- * There is no capture of this game on a CGA in `screenshots-from-original/`, so
+ * There is no capture of *this* game on a CGA -- M20's is King's Quest -- so
  * unlike Hercules there is nothing to hold the result against. That is exactly
  * why the tables being *read* matters more here: the only check available is
  * that the reading is self-consistent, and the last section is that check.

@@ -3,6 +3,8 @@ node_modules
 **/data
 **/dist
 
+# Captures a test reads live in web-agi/test/captures/ and are committed.
+# This holds the ones no test opens, kept as reference material only.
 screenshots-from-original
 
 # Bundled game resources are copied in by `npm run game:sync`, never committed.

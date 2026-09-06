@@ -66,49 +66,38 @@ test('four colours, and every table covers all sixteen', () => {
   assert.equal(CGA_DITHER.length, PALETTE_SIZE);
   assert.equal(CGA_SOLID.length, PALETTE_SIZE);
 
-  for (const [colour, pair] of CGA_DITHER.entries()) {
-    assert.equal(pair.length, 2, `colour ${colour}`);
-    for (const index of pair) {
-      assert.ok(index >= 0 && index < CGA_COLOURS, `colour ${colour} uses CGA ${index}`);
+  for (const [colour, patterns] of CGA_DITHER.entries()) {
+    assert.equal(patterns.length, 2, `colour ${colour} has a pattern for each row`);
+    for (const pair of patterns) {
+      assert.equal(pair.length, 2, `colour ${colour}`);
+      for (const index of pair) {
+        assert.ok(index >= 0 && index < CGA_COLOURS, `colour ${colour} uses CGA ${index}`);
+      }
     }
   }
 
-  // The order within a pair is the original's and it is not sorted: green is
-  // 3,0 and cyan 0,1. Order changes nothing but which pixel of the stripe comes
-  // first, and the original still chose one, so the table keeps it.
-  assert.deepEqual(CGA_DITHER[2], [3, 0]);
-  assert.deepEqual(CGA_DITHER[3], [0, 1]);
+  // The order is the original's and it is not sorted. Green is 1,1 on even rows
+  // and 1,0 on odd ones; cyan is the background on even rows and 0,1 on odd.
+  assert.deepEqual(CGA_DITHER[2], [[1, 1], [1, 0]]);
+  assert.deepEqual(CGA_DITHER[3], [[0, 0], [0, 1]]);
 
   for (const index of CGA_SOLID) assert.ok(index >= 0 && index < CGA_COLOURS);
 });
 
-test('sixteen colours reach twelve appearances, of the sixteen ordered pairs', () => {
-  // Ordered, because the original's table is: four of its sixteen entries are a
-  // pair the reverse of another's, and drawn as stripes those are two different
-  // pictures even though they are the same colour on average.
-  const ordered = CGA_COLOURS * CGA_COLOURS;
-  assert.equal(ordered, 16);
-
-  const used = new Set(CGA_DITHER.map((pair) => pair.join(',')));
+test('sixteen colours reach fifteen appearances, of the sixteen there are', () => {
+  // An appearance is a *pair* of patterns now, not one, which is why fifteen of
+  // the sixteen colours are distinguishable where the one-pattern reading
+  // managed twelve.
+  const used = new Set(CGA_DITHER.map((patterns) => JSON.stringify(patterns)));
   assert.equal(used.size, CGA_COST.appearances);
-  assert.equal(used.size, 12, 'twelve of the sixteen, which leaves the four it collides on');
-
-  // As blends -- ignoring the order -- it reaches all ten there are, which is
-  // the most a pair of four colours can: every blend is put to work, and the
-  // four entries that collide are the surplus.
-  const blends = new Set(
-    CGA_DITHER.map((pair) => [...pair].sort((a, b) => a - b).join(',')),
-  );
-  assert.equal(blends.size, (CGA_COLOURS * (CGA_COLOURS + 1)) / 2);
-  assert.equal(blends.size, 10);
+  assert.equal(used.size, 15, 'only black and blue share one');
 });
 
-test('the fill table reaches more appearances than the picture table', () => {
-  // Because it alternates two patterns where the picture uses one, which is the
-  // original's own inconsistency rather than this engine's.
-  const filled = new Set(CGA_FILL.map((halves) => halves.map((pair) => pair.join(',')).join('/')));
-  assert.equal(filled.size, CGA_COST.fillAppearances);
-  assert.ok(filled.size > CGA_COST.appearances);
+test('a fill and a picture are the same table, drawn the same way', () => {
+  // They were once believed to be two tables. M20 measured the running
+  // interpreter and found one: the three-byte entry holds a row phase, not a
+  // separate fill pattern.
+  assert.equal(CGA_FILL, CGA_DITHER);
 });
 
 test('the four colours are the palette the original selected', () => {
@@ -209,8 +198,8 @@ test('the game draws every colour, so none is free to collide', () => {
 
 test('the recorded collisions are the collisions the table has', () => {
   const groups = new Map<string, number[]>();
-  CGA_DITHER.forEach((pair, colour) => {
-    const key = pair.join(',');
+  CGA_DITHER.forEach((patterns, colour) => {
+    const key = JSON.stringify(patterns);
     groups.set(key, [...(groups.get(key) ?? []), colour]);
   });
 
@@ -239,16 +228,30 @@ test('each collision costs what it is recorded as costing', () => {
 
   assert.equal(total, CGA_COST.lostEdges);
 
-  // And the shape of the loss: three quarters of it is one group, light grey
-  // with yellow and white, which no rearrangement recovers -- the brightest
-  // blend is light grey, so a highlight on light grey has nowhere to go.
-  const worst = Math.max(...CGA_COLLISIONS.map((group) => group.lostEdges));
-  assert.ok(worst / total > 0.7, 'the expensive group is still the expensive one');
+  // One group, so it is the whole cost: black against blue, which no
+  // rearrangement recovers -- both are the background register, and there is no
+  // fifth colour to move one of them to.
+  assert.equal(CGA_COLLISIONS.length, 1);
+  assert.ok(total / 277937 < 0.1, "and it is a tenth of the game's boundaries");
 });
 
-test('brown and dark grey are the one collision the game never notices', () => {
-  // The only pair in the table that is never adjacent anywhere in 43 pictures.
-  assert.equal(measured.adjacent[6]![8], 0);
+test('the colours the row phase gave back are the ones the game notices', () => {
+  // Under the one-pattern reading three groups collided and the game lost
+  // 30,549 boundary pixels. Two of those groups are gone, and what they were
+  // worth is measured here rather than asserted in the abstract: yellow against
+  // white is the expensive one, and dark grey -- which also came free of the
+  // background -- turns out to be worth almost nothing in this game.
+  for (const [a, b] of [[14, 15], [12, 13], [8, 0]] as const) {
+    assert.notDeepEqual(CGA_DITHER[a], CGA_DITHER[b], `${a} still looks like ${b}`);
+  }
+
+  const recovered =
+    measured.adjacent[14]![15]! + measured.adjacent[12]![13]! + measured.adjacent[8]![0]!;
+  assert.deepEqual(
+    [measured.adjacent[14]![15], measured.adjacent[12]![13], measured.adjacent[8]![0]],
+    [2276, 654, 5],
+  );
+  assert.equal(30549 - CGA_COST.lostEdges, recovered, 'which is the whole improvement');
 });
 
 // --- what the driver draws --------------------------------------------------
@@ -283,40 +286,38 @@ test('a CGA frame holds nothing but the four colours it has', async () => {
   }
 });
 
-test('the dither is stripes, not a checkerboard', () => {
-  // M12 swapped the pair on alternate rows, so a region read as a checkerboard.
-  // CGA_GRAF.OVL has no row phase -- HGC_GRAF.OVL masks the row with `and dx,
-  // 3` and this one has no such instruction -- so a run of one colour is two
-  // one-pixel stripes, identical on every row.
+test('the dither is a checkerboard, because the pattern turns over each row', () => {
+  // M16 read this the other way -- CGA_GRAF.OVL has no `and dx, 3` where
+  // HGC_GRAF.OVL does -- and drew vertical stripes. M20 measured the running
+  // 2.917 interpreter instead and found two patterns a colour, chosen by row.
   const driver = new CgaDriver();
-  const flat = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(11); // light cyan: 1,3
+  const flat = new Uint8Array(PICTURE_WIDTH * PICTURE_HEIGHT).fill(7); // light grey
   driver.draw(new Frame().fill(0).picture(flat, DEFAULT_PICTURE_ROW));
 
-  const [a, b] = CGA_DITHER[11]!;
-  assert.notEqual(a, b, 'light cyan is a mixed pair, or this proves nothing');
+  const [even, odd] = CGA_DITHER[7]!;
+  assert.notDeepEqual(even, odd, 'light grey differs by row, or this proves nothing');
 
   const at = (x: number, y: number) => driver.display.pixels[y * driver.display.width + x]!;
   const top = DEFAULT_PICTURE_ROW * 8;
+  assert.equal(top % 2, 0, 'the picture starts on an even row');
 
-  for (const row of [top, top + 1, top + 2]) {
-    assert.equal(at(0, row), a, `row ${row} starts on the same colour`);
-    assert.equal(at(1, row), b);
+  for (const row of [top, top + 2]) {
+    assert.deepEqual([at(0, row), at(1, row)], [...even], `row ${row}`);
+  }
+  for (const row of [top + 1, top + 3]) {
+    assert.deepEqual([at(0, row), at(1, row)], [...odd], `row ${row}`);
   }
 });
 
-test('a fill is dithered, and with the fill table rather than the picture one', () => {
-  // The original's fill routine builds its byte from two nibbles, so the
-  // pattern alternates across the width. Green is the clearest case: the
-  // picture draws it 3,0 and a fill lays 1,0 then 1,1.
+test('a fill is dithered the way the picture is', () => {
   const driver = new CgaDriver();
-  driver.draw(new Frame().fill(2));
+  driver.draw(new Frame().fill(2)); // green
 
-  const at = (x: number) => driver.display.pixels[x]!;
-  const [left, right] = CGA_FILL[2]!;
-  assert.deepEqual([left, right], [[1, 0], [1, 1]]);
-  assert.deepEqual([at(0), at(1), at(2), at(3)], [1, 0, 1, 1]);
-  assert.deepEqual([at(4), at(5), at(6), at(7)], [1, 0, 1, 1], 'and it repeats every four');
-  assert.notDeepEqual([at(0), at(1)], [...CGA_DITHER[2]!], 'which the picture table would not');
+  const at = (x: number, y: number) => driver.display.pixels[y * driver.display.width + x]!;
+  const [even, odd] = CGA_DITHER[2]!;
+  assert.deepEqual([even, odd], [[1, 1], [1, 0]]);
+  assert.deepEqual([at(0, 0), at(1, 0), at(2, 0), at(3, 0)], [1, 1, 1, 1]);
+  assert.deepEqual([at(0, 1), at(1, 1), at(2, 1), at(3, 1)], [1, 0, 1, 0]);
 });
 
 test('a solid colour stays solid: text is not dithered', () => {

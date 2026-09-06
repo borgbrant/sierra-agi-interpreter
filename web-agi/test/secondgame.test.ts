@@ -35,6 +35,11 @@ import { readInterpreterVersion } from '../src/resources/interpreter.ts';
 import { parseObjectFile } from '../src/resources/objects.ts';
 import { Vocabulary } from '../src/resources/words.ts';
 import { DiskSource } from './helpers/disk-source.ts';
+import { AGREEMENT, CAPTURE, MENU, PICTURE, readCapture } from './helpers/cga-reference.ts';
+import { DEFAULT_PICTURE_ROW } from '../src/engine/layout.ts';
+import { CgaDriver } from '../src/render/drivers/cga.ts';
+import { Frame } from '../src/render/frame.ts';
+import { PICTURE_HEIGHT, PICTURE_WIDTH, Screens } from '../src/render/screens.ts';
 
 const KQ1 = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -47,6 +52,13 @@ const KQ1 = resolve(
 
 const present = existsSync(KQ1);
 const skip = present ? false : 'agi-extract/data/kq1 is not here';
+
+/**
+ * The capture is in the repository, in `test/captures/`, so this normally runs.
+ * It is still guarded: a fixture that has gone missing should fail loudly at
+ * the assertion rather than quietly at the file read.
+ */
+const skipCapture = skip || (existsSync(CAPTURE) ? false : `${CAPTURE} is not here`);
 
 /** Where King's Quest I keeps what Larry keeps 436 bytes lower. */
 const KQ1_TABLES_AT = 0x1d2c;
@@ -313,4 +325,45 @@ test('a second game’s title keeps the lines it prints below the picture', { sk
 
   assert.match(textAt(22), /copyright SIERRA/);
   assert.match(textAt(24), /Press any key/);
+});
+
+test('the four-colour CGA matches a capture of the real interpreter', { skip: skipCapture }, async () => {
+  // The test M16 could not write, because there was no CGA capture to write it
+  // against. M20 took one -- the 2.917 interpreter itself, under DOSBox-X on
+  // machine=cga, switched into the four-colour mode -- and it is what found the
+  // picture table reading to be wrong. See `helpers/cga-reference.ts`.
+  const { source, resources } = await openGame();
+  const screens = Screens.fromPicture(resources.loadSync('pic', PICTURE));
+
+  // This game's own tables, not the bundled ones -- the point of M18.
+  const driver = new CgaDriver(readInterpreterTables((await source.read('AGIDATA.OVL'))!).cga);
+  driver.draw(new Frame().fill(0).picture(screens.visual, DEFAULT_PICTURE_ROW));
+
+  const capture = readCapture();
+  assert.equal(capture.width, driver.display.width);
+  assert.equal(capture.height, driver.display.height);
+
+  const top = DEFAULT_PICTURE_ROW * 8;
+  let compared = 0;
+  let same = 0;
+
+  for (let row = 0; row < PICTURE_HEIGHT; row++) {
+    const y = top + row;
+    if (y >= capture.height) break;
+    for (let x = 0; x < PICTURE_WIDTH * 2; x++) {
+      if (row < MENU.rows && x < MENU.columns * 2) continue; // the open menu
+      compared++;
+      same += capture.pixels[y * capture.width + x] === driver.display.pixels[y * capture.width + x]
+        ? 1
+        : 0;
+    }
+  }
+
+  assert.equal(compared, 51240, 'the picture outside the menu overlay: 25,620 AGI pixels, doubled');
+  const agreement = same / compared;
+  assert.ok(
+    agreement >= AGREEMENT.floor,
+    `${(agreement * 100).toFixed(1)}% of the original's pixels, floor ${AGREEMENT.floor * 100}%`,
+  );
+  assert.ok(agreement > AGREEMENT.wasBefore * 2, 'and far past what the old table reached');
 });

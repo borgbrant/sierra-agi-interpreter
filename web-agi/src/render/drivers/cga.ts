@@ -96,6 +96,21 @@ import type { DisplayDriver, DisplayMode } from './driver.ts';
  * In 320x200 the background register *is* colour 0 of the palette, so colour 0
  * is CGA's blue and 1 to 3 are palette 0's green, red and brown. Nothing in the
  * game is drawn in black on a CGA: the darkest thing on the screen is blue.
+ *
+ * What the calls do not say is what the BIOS makes of `bl`, and one bit of that
+ * -- intensity -- is the difference between these four colours and four much
+ * brighter ones. Measured rather than argued: a COM file making the game's own
+ * two calls under DOSBox-X on `machine=cga`, reading the BIOS's copy of the
+ * register back from `0040:0066`, gives **0x01**. Background 1, intensity off,
+ * palette 0. The same program with the two calls removed gives **0x30** -- mode
+ * 4's default, palette 1 at high intensity on black, the cyan-and-magenta
+ * screen most CGA software shows -- so both calls are overrides Sierra spent
+ * instructions on.
+ *
+ * Worth knowing when this looks wrong beside an emulator: ScummVM's AGI draws
+ * CGA as black/light cyan/light magenta/white through a dither table of its
+ * own, not the one in `AGIDATA.OVL`. It differs here in both palette and
+ * pattern, on purpose.
  */
 export const CGA_PALETTE_RGB = new Uint8Array([
   0, 0, 170, // 0  blue      the background register, set to 1
@@ -105,31 +120,35 @@ export const CGA_PALETTE_RGB = new Uint8Array([
 ]);
 
 /**
- * The two CGA colours each of AGI's sixteen is drawn as, left pixel first.
+ * The two CGA colours each of AGI's sixteen is drawn as, on each of two rows.
  *
- * The four-colour picture table of `AGIDATA.OVL`, unpacked: one nibble a
- * colour, its high two bits the left pixel and its low two the right. The
- * comment on each line is what the pair blends to under the palette above, so
- * a wrong entry is a visible diff rather than a number to take on trust.
+ * **Two patterns a colour, chosen by scanline** -- not one. Each entry of the
+ * three-byte table at `0x1b78` holds a nibble for even display rows and a
+ * nibble for odd ones, and a run of one colour is therefore a checkerboard
+ * rather than a stripe. `[even, odd]`, each a pair of CGA colours with the left
+ * pixel first.
  *
- * Three of them are solid -- red, light green and yellow land on a single CGA
- * colour each -- and three groups collide. The order within a pair matters to
- * nothing but the phase of the stripe, and the original still chose one.
+ * This is measured, and it is the correction M20 exists for. Running the real
+ * 2.917 interpreter under DOSBox-X on `machine=cga`, switching it into the
+ * four-colour mode and reading its screen back against the game's own picture 1
+ * reproduces **99.0%** of 25,620 pixels from the rule below. The 16-byte table
+ * at `0x1bb8`, which M16 read as the four-colour picture table and this driver
+ * used until now, reproduces **16.4%**. Whatever `0x1bb8` is for, it is not
+ * this; see `render/cgatables.ts`.
  */
-export const CGA_DITHER: readonly (readonly [number, number])[] =
-  CGA_TABLES.colour.map((nibble) => colourPixels(nibble));
+export const CGA_DITHER: readonly (readonly [
+  readonly [number, number],
+  readonly [number, number],
+])[] = CGA_TABLES.fill.map(([odd, even]) => [colourPixels(even), colourPixels(odd)]);
 
 /**
- * The pattern a fill uses, which is not the pattern the picture uses.
+ * The same table again, under the name the fill layers used to have.
  *
- * Two nibbles a colour: the left AGI pixel's and the right's. The original's
- * fill routine combines them into one byte, so a filled region alternates
- * between two patterns across its width and reaches distinctions the picture
- * cannot -- green fills as 1,0 then 1,1, which is three quarters green, where
- * the picture draws it 3,0.
+ * Kept as an alias because the two uses were once believed to be different
+ * tables. They are one table: a filled band and a drawn picture dither
+ * identically, which is why {@link CGA_COST} no longer distinguishes them.
  */
-export const CGA_FILL: readonly (readonly [[number, number], [number, number]])[] =
-  CGA_TABLES.fill.map(([left, right]) => [colourPixels(left), colourPixels(right)]);
+export const CGA_FILL = CGA_DITHER;
 
 /**
  * Which colours end up looking the same, and what that costs.
@@ -139,21 +158,15 @@ export const CGA_FILL: readonly (readonly [[number, number], [number, number]])[
  * `cga.test.ts` recomputes the list from the table and the game's pictures, so
  * the two cannot drift apart.
  *
- * The first group is nine tenths of the whole cost. **Black, blue and dark grey
- * are all the background**, and black meets blue in 27,614 places -- the game's
- * night skies, its shadows, and every dark thing drawn against another dark
- * thing. M12's derived table lost 11,335 boundary pixels in total; the
- * original's loses 30,549, which is 11% of every boundary in the game against
- * M12's 4%.
- *
- * That is the price of fidelity here and it is not a small one. It is also not
- * this project's to negotiate: the original flattened those three into one, and
- * a player on a CGA in 1987 saw them flattened.
+ * There is exactly one, and M20 is why it is now one rather than three. Two
+ * patterns a colour instead of one is twice the vocabulary: dark grey, light
+ * red and light magenta, yellow and white each got their own appearance back,
+ * and only **black and blue** are still both the background. They meet in
+ * 27,614 places -- the game's night skies and its shadows -- which is 9.9% of
+ * every boundary the game draws, against the 11% the one-pattern reading cost.
  */
 export const CGA_COLLISIONS: readonly { colours: readonly number[]; lostEdges: number }[] = [
-  { colours: [0, 1, 8], lostEdges: 27619 }, // all three are the background
-  { colours: [12, 13], lostEdges: 654 }, // light red = light magenta
-  { colours: [14, 15], lostEdges: 2276 }, // yellow = white, both solid brown
+  { colours: [0, 1], lostEdges: 27614 }, // both are the background, on both rows
 ];
 
 /**
@@ -165,28 +178,11 @@ export const CGA_COLLISIONS: readonly { colours: readonly number[]; lostEdges: n
  */
 export const CGA_COST = {
   /** Boundary pixels that vanish, of the 277,937 the game draws. */
-  lostEdges: 30549,
-  /** Distinct appearances the sixteen colours reach when drawn. */
-  appearances: 12,
-  /** And when filled, which uses the other table and reaches more. */
-  fillAppearances: 15,
+  lostEdges: 27614,
+  /** Distinct appearances the sixteen colours reach: fifteen of a possible 16. */
+  appearances: 15,
 } as const;
 
-/**
- * The single colour each of the sixteen becomes where it cannot be dithered.
- *
- * Text, not pictures. A character cell is eight pixels wide and a glyph's
- * stroke is one or two of them, so a dithered stroke is a stroke with holes in
- * it: the letter stops being a letter.
- *
- * This is the one table in this file that is still derived, and the reason is
- * that it is not in the overlay. `CGA_GRAF.OVL`'s six routines are a mode set,
- * a screen blit, a fill, a clear, a masked pixel write and an in-place colour
- * translation; text is drawn by the interpreter above it, in whatever colour it
- * hands down. So this is nearest match among the four, weighted 0.30/0.59/0.11
- * -- and where two colours land on the same one, `cgaTextColours` breaks the
- * tie so that ink never sits on its own ground.
- */
 export const CGA_SOLID: readonly number[] = [
   0, //  0  black          -> blue, which is as dark as this palette goes
   0, //  1  blue           -> blue, exactly
@@ -246,20 +242,25 @@ export class CgaDriver implements DisplayDriver {
   readonly monochrome: boolean = false;
 
   /**
-   * The pairs and the fill patterns this driver draws with.
+   * The two patterns this driver draws each colour with: `[even row, odd row]`.
    *
    * Held per driver rather than read from the module, for the reason Hercules
    * holds its own: whether `AGIDATA.OVL` was bundled is not known until it has
    * been read, and the renderer builds a driver when the mode changes, so the
    * tables arrive with it. Absent, the bytes LSL1's copy holds are used.
    */
-  readonly pairs: readonly (readonly [number, number])[];
-  readonly fills: readonly (readonly [[number, number], [number, number]])[];
+  readonly pairs: readonly (readonly [readonly [number, number], readonly [number, number]])[];
 
   /** @param tables `AGIDATA.OVL`'s CGA tables, when the game came with them */
   constructor(tables: CgaTables = CGA_TABLES) {
-    this.pairs = tables.colour.map((nibble) => colourPixels(nibble));
-    this.fills = tables.fill.map(([left, right]) => [colourPixels(left), colourPixels(right)]);
+    this.pairs = tables.fill.map(([odd, even]) => [colourPixels(even), colourPixels(odd)]);
+  }
+
+  /** The pattern a colour takes on one display row. Even rows take the second
+   * nibble of the three-byte entry and odd rows the first -- measured, see the
+   * note on {@link CGA_DITHER}. */
+  #pattern(colour: number, row: number): readonly [number, number] {
+    return this.pairs[colour & 0x0f]![row & 1]!;
   }
 
   draw(frame: Frame): void {
@@ -316,23 +317,19 @@ export class CgaDriver implements DisplayDriver {
   }
 
   /**
-   * A band of rows filled with a colour's fill pattern.
+   * A band of rows filled with a colour's pattern.
    *
-   * The pattern alternates between neighbouring AGI pixels, which is what the
-   * original's fill routine does: it builds one byte out of two nibbles and
-   * stores it across the row, so the two patterns land on even and odd AGI
-   * pixels. Four device pixels of period, and no variation down the rows.
+   * The same two patterns the picture uses, alternating by row: a filled band
+   * and a drawn region of one colour are the same texture, which is what the
+   * capture in `test/captures/kq1-cga-castle.png` shows.
    */
   #fillRows(from: number, to: number, colour: number): void {
-    const [left, right] = this.fills[colour & 0x0f]!;
-
     for (let y = Math.max(0, from); y < to; y++) {
+      const [left, right] = this.#pattern(colour, y);
       let at = y * this.display.width;
-      for (let x = 0; x < this.display.width; x += PIXEL_ASPECT * 2) {
-        this.display.pixels[at++] = left[0]!;
-        this.display.pixels[at++] = left[1]!;
-        this.display.pixels[at++] = right[0]!;
-        this.display.pixels[at++] = right[1]!;
+      for (let x = 0; x < this.display.width; x += PIXEL_ASPECT) {
+        this.display.pixels[at++] = left;
+        this.display.pixels[at++] = right;
       }
     }
   }
@@ -340,11 +337,10 @@ export class CgaDriver implements DisplayDriver {
   /**
    * The picture, dithered.
    *
-   * The pair is drawn the same way on every row, because `CGA_GRAF.OVL` has no
-   * row phase: a run of one colour is vertical stripes one pixel wide. M12 drew
-   * a checkerboard here instead, on the argument that two stripes are the same
-   * colour on average and a worse texture. The argument was sound; the card did
-   * this.
+   * Two patterns a colour, chosen by display row, so a run of one colour is a
+   * checkerboard. M16 read this as vertical stripes from the absence of a row
+   * mask in `CGA_GRAF.OVL`; M20 measured the running interpreter and found the
+   * row phase is there. See the note on {@link CGA_DITHER} for the numbers.
    */
   #drawScreen(screen: ArrayLike<number>, top: number): void {
     for (let y = 0; y < PICTURE_HEIGHT; y++) {
@@ -355,9 +351,9 @@ export class CgaDriver implements DisplayDriver {
       const source = y * PICTURE_WIDTH;
 
       for (let x = 0; x < PICTURE_WIDTH; x++) {
-        const pair = this.pairs[screen[source + x]! & 0x0f]!;
-        this.display.pixels[at++] = pair[0]!;
-        this.display.pixels[at++] = pair[1]!;
+        const [left, right] = this.#pattern(screen[source + x]!, destRow);
+        this.display.pixels[at++] = left;
+        this.display.pixels[at++] = right;
       }
     }
   }
@@ -374,10 +370,10 @@ export class CgaDriver implements DisplayDriver {
         const colour = cel.pixels[y * cel.width + x]!;
         if (colour === TRANSPARENT) continue;
 
-        const pair = this.pairs[colour & 0x0f]!;
+        const pattern = this.#pattern(colour, destRow);
         const at = destRow * this.display.width + left + x * PIXEL_ASPECT;
-        this.display.pixels[at] = pair[0]!;
-        this.display.pixels[at + 1] = pair[1]!;
+        this.display.pixels[at] = pattern[0];
+        this.display.pixels[at + 1] = pattern[1];
       }
     }
   }

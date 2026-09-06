@@ -711,25 +711,77 @@ minimising error against an EGA reference — they were keeping sixteen colours
 disappears. Nothing in the game is black on a CGA: the darkest thing on the
 screen is blue.
 
-Three consequences, each replacing something M12 decided:
+That reading rested on one unverified step, and it no longer does. The two BIOS
+calls do not name a register value; the BIOS decides what `bl` means, and the
+intensity bit is the difference between the palette above and a far brighter
+one. Running the game's own two calls under DOSBox-X on `machine=cga` and
+reading back the BIOS's own copy of the register at `0040:0066` gives **0x01** —
+background 1, intensity off, palette 0, which is what this driver draws. The
+same program with the two calls removed gives **0x30**: mode 4's default is
+palette 1 at high intensity on black, the cyan-and-magenta screen most CGA
+software shows. So both calls are deliberate overrides of that default, and the
+dark palette is a choice Sierra spent instructions on rather than a default they
+inherited. `nerdlypleasures.blogspot.com` records the same thing from the other
+end: early AGI's four-colour driver used the red/green/brown palette, and only
+later ones moved to cyan/red/white.
+
+This is also why an emulator is not a reference here. ScummVM's AGI renders CGA
+as black, light cyan, light magenta and white — `PALETTE_CGA` in
+`engines/agi/palette.h` — through a mixture table of its own
+(`CGA_MixtureColorTable`, a permutation of all sixteen nibbles) rather than the
+one in `AGIDATA.OVL`, which is not a permutation and flattens three colours onto
+the background. Compared against ScummVM this driver differs in both palette and
+dither, and the interpreter's own bytes are the reason.
+
+### Which table the picture goes through, and the row phase (M20)
+
+The palette above survived a check against the running interpreter. The dither
+did not, and M20 is the correction.
+
+The picture goes through the **three-byte table at `0x1b78`**, not the 16-byte
+one at `0x1bb8`, and the two four-colour nibbles of each entry are **two
+scanlines** rather than two neighbouring pixels: even display rows take the
+second, odd rows the first. A run of one colour is therefore a checkerboard.
+
+Measured, not read. `agi-extract/data/kq1` is a complete 2.917 install, so the
+real interpreter runs under DOSBox-X on `machine=cga`; sampling its four-colour
+screen back onto the CGA pixel grid and reading it against the game's own
+picture 1 gives:
 
 ```text
-the pairs        the original's, and its collisions with them: black, blue and
-                 dark grey are all the background, light red is light magenta,
-                 yellow is white. 30,549 boundary pixels of the game's own
-                 pictures vanish, against M12's 11,335 -- 11% of every
-                 boundary in the game against 4%
-no row phase     CGA_GRAF.OVL has none, where HGC_GRAF.OVL masks the row with
-                 `and dx, 3`. So the dither is vertical stripes, identical on
-                 every row, where M12 drew a checkerboard on the argument that
-                 two stripes are a worse texture. The argument was sound and
-                 the card did this
-fills are their  the third table, and in four colours it fills with two
-own table        alternating patterns where the picture uses one -- fifteen
-                 distinct appearances against the picture's twelve. In two
-                 colours the two tables agree exactly, which is the check on
-                 both readings
+                                  agreement over 51,240 pixels
+the three-byte table + row phase           99.05%
+the 16-byte table, one pattern each        16.4%
+row parity explains the choice                96%
+column parity explains it                     50%   -- which is none
 ```
+
+M16 concluded there was no row phase because `CGA_GRAF.OVL` has no `and dx, 3`
+where `HGC_GRAF.OVL` does. The instruction really is absent and the conclusion
+really was wrong: a negative result about a disassembly is not a positive result
+about a screen. M12 drew a checkerboard and argued for it; the card did that.
+
+What the second pattern is worth:
+
+```text
+                     before   after
+appearances              12      15   of sixteen colours
+collisions                3       1   only black and blue, both the background
+lost boundary pixels 30,549  27,614   of the 277,937 the game draws
+```
+
+Yellow against white was 2,276 of the recovered boundary pixels, light red
+against light magenta 654, and dark grey against black 5 — measured, because the
+sizes are not guessable from the table.
+
+A filled band and a drawn region are consequently the same texture: `0x1b78` is
+not a fill table as opposed to a picture table, it is *the* table. What the
+16-byte table at `0x1bb8` is for is open — it is real, it decodes sensibly under
+this palette, and the picture does not use it.
+
+`test/captures/kq1-cga-castle.png` is the capture, quantised to the
+four palette entries, and `secondgame.test.ts` renders picture 1 against it.
+It is the first CGA reference this project has, against seven for Hercules.
 
 The two-colour mode is not a fourth adapter. It is what the game's own CGA-only
 menu item asks for — *Graphics Mode `Ctrl-R`*, which calls `toggle.monitor` —
@@ -892,7 +944,7 @@ There is no threshold anywhere in it.
 
 Two tables were built before anyone opened that file, and both were careful and
 wrong. M13 derived densities from luminance and handed out three weaves by rule.
-M15 then measured densities off the captures in `screenshots-from-original/` and
+M15 then measured densities off the captures in `test/captures/` and
 concluded that thirteen of the sixteen colours were solid — which is what a
 capture says if you threshold its pixels. Half of the real table's patterns
 alternate on a one-pixel pitch, and a capture smooths those into a flat

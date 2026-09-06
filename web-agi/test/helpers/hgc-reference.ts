@@ -17,16 +17,19 @@
  * that the original barely dithered. The mean luminance of a colour's regions
  * survives that smoothing, and it is what these numbers are.
  *
- * The captures are not in the repository -- they are large, and not this
- * project's to redistribute -- so the tests that use them skip when
- * `screenshots-from-original/` is absent.
+ * The three captures these tests read are in the repository, beside the tests
+ * in `test/captures/`. They are large -- about 19 MB with the CGA one -- and
+ * they are frames of somebody else's game, both of which argued for keeping
+ * them out; what argued louder is that a test whose fixture is missing is a
+ * test that silently skips, and this suite has been bitten by that once
+ * already. The four captures no test reads stay out.
  */
 
-/** Where the captures live, relative to the package. */
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const CAPTURE_DIR = 'screenshots-from-original';
+/** Where the captures live, relative to the test directory. */
+export const CAPTURE_DIR = 'captures';
 
 /**
  * Where the captures are, as an absolute path.
@@ -40,7 +43,6 @@ export const CAPTURE_DIR = 'screenshots-from-original';
 export const CAPTURES_AT = resolve(
   dirname(fileURLToPath(import.meta.url)),
   '..',
-  '..',
   CAPTURE_DIR,
 );
 
@@ -52,7 +54,8 @@ export const CAPTURES_AT = resolve(
  * not a PICTURE resource -- a room draws over its picture, and those pixels are
  * not the colour the PICTURE holds underneath them.
  *
- * Four of the seven captures are not here. Three are the title screen behind
+ * Four of the seven captures are not here, and are not in the repository
+ * either. Three are the title screen behind
  * the age quiz and the intro's info box, which are not a room's composed
  * picture at all. The fourth is `lsl1-hercules-inputbox-command`: room 12 with
  * the interpreter's command box over the middle of it, which identifies at 58%

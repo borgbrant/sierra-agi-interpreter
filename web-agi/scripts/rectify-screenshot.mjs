@@ -1,7 +1,7 @@
 /**
  * A capture of the original on a Hercules, turned back into the bits it was.
  *
- * The screenshots in `screenshots-from-original/` are scaled screen grabs, not
+ * The screenshots in `test/captures/` are scaled screen grabs, not
  * photographs of a tube: every one of them is a whole-ish multiple of the
  * mode's own raster, so a capture can be put back on that grid and sampled.
  *
