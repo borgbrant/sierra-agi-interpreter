@@ -61,11 +61,34 @@ export const OBJECTS: Record<string, Handler> = {
 
   'unanimate.all': (m) => m.viewTable.unanimateAll(),
 
+  /**
+   * Put an object on screen, where it can legally stand.
+   *
+   * The settling is the original's, and it is not a nicety. `position` places
+   * an object without checking anything -- deliberately, see below -- so the
+   * check happens here, once, as it is drawn. Larry's honeymoon suite is the
+   * room that needs it: logic 41 puts ego down at 124,129, which straddles the
+   * two-pixel conditional-obstacle line the picture draws along the wall of
+   * the entryway, and an ego drawn there is stuck against it in every
+   * direction for as long as the room lasts.
+   */
   draw: (m, [n]) =>
     on(n!, m, (o) => {
       if (!o.animated) return;
       o.drawn = true;
+      // Drawing an object also starts it updating again. Larry's penthouse is
+      // where that shows: logic 42 calls `stop.update(0)` on ego to hold him
+      // still while the lift doors close, and logic 44 draws him on the other
+      // side and expects him to be able to walk.
+      o.update = true;
       if (!o.fixedPriority) o.priority = priorityForRow(o.y, m.priorityBase);
+      // Where it is now is also where it came from: an object being drawn is
+      // not an object in mid-step, and leaving the previous position stale
+      // makes the collision test read the whole distance from wherever it last
+      // stood as ground it is crossing this cycle.
+      o.previousX = o.x;
+      o.previousY = o.y;
+      fixPosition(m, o);
       o.repositioned = true;
     }),
 
@@ -189,10 +212,22 @@ export const OBJECTS: Record<string, Handler> = {
     on(n!, m, (o) => {
       o.update = true;
     }),
-  'force.update': (m, [n]) =>
-    on(n!, m, (o) => {
-      o.update = true;
-    }),
+  /**
+   * Redraw an object now, without leaving it updating afterwards.
+   *
+   * The original turns updating on for the length of one draw pass and puts it
+   * back the way it was, so a stopped object can be made to appear at once.
+   * This engine composites every drawn object at the end of every cycle,
+   * updating or not, so the drawing has already been arranged and what is left
+   * is the part that must *not* happen: leaving `update` on.
+   *
+   * Larry's alley is where it shows. The window Larry climbs out of is
+   * animated open, then frozen with `stop.update(2)` and `force.update(2)` --
+   * and if that pair leaves it updating it keeps cycling, reaches its last cel
+   * again, and the room's script reads that cel as "the climb is finished" on
+   * every cycle from then on. Larry climbs down the fire escape for ever.
+   */
+  'force.update': () => {},
 
   // --- animation ---------------------------------------------------------
   'start.cycling': (m, [n]) =>

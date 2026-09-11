@@ -353,10 +353,13 @@ export function fixPosition(machine: Machine, object: ViewObject): void {
   // Onto the screen first: a wrapped byte is too far out for a search to walk
   // back from one pixel at a time.
   object.x = Math.max(0, Math.min(PICTURE_WIDTH - width, object.x));
-  object.y = Math.max(
-    Math.min(machine.horizon + 1, PICTURE_HEIGHT - 1),
-    Math.min(PICTURE_HEIGHT - 1, object.y),
-  );
+  object.y = Math.min(PICTURE_HEIGHT - 1, object.y);
+  // The horizon is only a floor for the objects that observe it. Lefty's bar
+  // hangs a sign above its own horizon with `ignore.horizon`, and pushing that
+  // down to the ground is not a repair.
+  if (!object.ignoresHorizon) {
+    object.y = Math.max(Math.min(machine.horizon + 1, PICTURE_HEIGHT - 1), object.y);
+  }
 
   if (legal()) return;
 

@@ -3577,3 +3577,102 @@ end-to-end one -- King's Quest's intro run to its prompt, a key pressed, and the
 row checked in both modes. The second fails on the old code, which was checked
 rather than assumed.
 
+## M22 — Larry, all the way to the end — complete
+
+The Leisure Suit Larry walk-through was played as far as the pay phone outside
+the convenience store, twenty-one lines of a hundred and sixty-one. This is the
+rest of it: `test/walkthrough-lsl1.test.ts` now runs the game from the age
+questions to its ending and finishes on the 222 points the source claims, in
+about two seconds.
+
+It found three defects, and all three are the same shape: a command that the
+engine implemented as most of what the original does.
+
+### The defects
+
+```text
+force.update    set `update` and left it set, so `stop.update` followed by
+                `force.update` -- which is how a script freezes an animation
+                on its last frame -- left the object cycling
+draw            did not settle the object into a legal position, and did not
+                turn updating back on
+fix.position    clamped y to the horizon for every object, including the ones
+                that had asked to ignore it
+```
+
+Each of them is a room the game could not be played out of.
+
+`force.update` is Larry's alley. Logic 12 animates the hooker's window open,
+freezes it with `stop.update(2)` and `force.update(2)`, and then reads the
+window's cel every cycle: while it shows the last frame, the room takes that as
+"the climb is finished" and starts the fire-escape sequence again. With the
+window still cycling it reaches that frame for ever, and Larry climbs down the
+ladder in an endless loop. The original's `force.update` draws the object once
+without leaving it updating; this engine composites every drawn object at the
+end of every cycle whether it updates or not, so the drawing was already
+arranged and the only part left to implement was the part that must not happen.
+
+`draw` is the honeymoon suite and the penthouse, one defect each. Logic 41 puts
+ego down at 124,129, which straddles the two-pixel conditional-obstacle line the
+picture draws along the entryway wall — the original settles an object into a
+legal position as it draws it, and without that Larry is wedged against the wall
+in every direction for as long as the room lasts. Logic 42 then calls
+`stop.update(0)` on ego to hold him still while the private lift closes, and
+logic 44 draws him on the other side and expects him to walk: `draw` turns
+updating back on, and without that he cannot.
+
+`fix.position` only became visible once `draw` called it. Lefty's bar hangs a
+sign above its own horizon with `ignore.horizon`, and pushing that down to the
+ground is not a repair — it is a moved sprite in a room three Hercules capture
+tests measure. Those tests are what caught it.
+
+### What the harness grew
+
+`Step` gained five kinds, and every one of them is a thing the walk-through's
+own sources say the player does:
+
+```text
+swims       walk on the water control colour, which Larry's games use as a
+            sensor rather than as water -- the strip of floor in front of the
+            convenience store counter is painted with it, and so is the disco's
+            dance floor
+press       the parts of the game that are not typed: the blackjack table is
+            played on F4, F6 and F8
+save        keep the game, and put it back. Every source for this game says to
+restore     save before each hand of blackjack, and a `repeat` around a
+            `restore` is exactly that
+repeat      run steps until the game plays along. The man with the apples is
+            outside the casino on two rolls of a die in three
+```
+
+`points` moved onto every step kind rather than only typed ones, because a game
+pays for things the player did not type: the clerk hands over the goods several
+seconds after the last question, and the dance at the disco pays when it ends.
+`dismiss` learned to press past inventory close-ups and key-waits as well as
+message windows -- the magazine's centrefold is a close-up, and it was eating
+the first letter of the next line typed.
+
+### The money, which is the interesting part
+
+Two things in the game cost $100 -- the girl at the disco and the wedding -- and
+Larry starts with $94. The fares rise as the night goes on, and Fawn takes the
+whole wallet in the honeymoon suite and leaves $10. So the walk-through has to
+gamble three times, and it does it the way the sources say to: save, play the
+hand, restore it if it lost. The random sequence is deliberately not part of the
+snapshot, so a restored hand deals different cards; nine hands take 54ms.
+
+### What playing it settled about the source
+
+Two entries in `lsl1.md` were wrong and are now recorded as such beside the
+table. Step 73's `209-6836858` is not a spelling the game knows -- logic 22
+keeps six of Sierra's own number and none has a hyphen after the area code --
+and step 98's `(5/128)` is the arithmetic slip that file already suspected: the
+radio pays one point, which is what makes 128 out of the 127 before it.
+
+### What it is worth watching for
+
+All three defects were found by a room the engine had never been walked through,
+and none of them would have been found by a unit test of the command. The
+remaining commands most likely to be *most* of the original are the ones that
+touch the view table's flags: `reposition`, `start.update`, `end.of.loop`. The
+next second game will say.
