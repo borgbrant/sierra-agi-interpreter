@@ -9,6 +9,7 @@
     "web-agi"
   ],
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "test": "npm run test --workspaces --if-present",
     "dev": "npm run dev --workspace web-agi",
     "build": "npm run build --workspace web-agi"

@@ -1,0 +1,49 @@
+#!/bin/sh
+#
+# Run the test suite, and refuse the commit if it does not pass.
+#
+# Both workspaces, because a change to one of them is routinely a change to the
+# other: the engine's tests read `agi-extract`'s decoders, and its walk-through
+# tests play whole games through them. The whole suite is about four seconds.
+#
+# Escape hatches, in the order they are worth reaching for:
+#
+#   git commit --no-verify   skip this check for one commit
+#   SKIP_TESTS=1 git commit  the same, for a shell that is doing several
+#
+# Installed by `npm install`, which points `core.hooksPath` at this directory;
+# see the `prepare` script in the root package.json. To do it by hand:
+#
+#   git config core.hooksPath .githooks
+#
+set -e
+
+if [ -n "$SKIP_TESTS" ]; then
+  echo "pre-commit: SKIP_TESTS is set, so the suite was not run."
+  exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+log="$(git rev-parse --git-dir)/pre-commit-tests.log"
+
+printf 'pre-commit: running the test suite... '
+
+if npm test >"$log" 2>&1; then
+  echo 'passed.'
+  exit 0
+fi
+
+echo 'FAILED.'
+echo
+# The runner's own summary of what failed, rather than the tail: a passing run
+# names every test it ran, and npm adds a dozen lines of its own about the exit
+# code after the interesting part. The whole output stays in the log either way.
+if grep -q 'failing tests:' "$log"; then
+  sed -n '/failing tests:/,$p' "$log" | grep -v '^npm error' | head -n 60
+else
+  tail -n 40 "$log"
+fi
+echo
+echo "pre-commit: the commit was refused. The full output is in $log"
+echo "            Fix the tests, or commit with --no-verify to skip this check."
+exit 1

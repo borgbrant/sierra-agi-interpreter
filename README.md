@@ -23,8 +23,8 @@ scope.
 ## Getting started
 
 ```sh
-npm install     # installs both workspaces
-npm test        # 365 tests across both
+npm install     # installs both workspaces, and installs the git hook below
+npm test        # 586 tests across both
 npm run build   # typecheck and bundle web-agi
 npm run dev     # serve web-agi at http://localhost:5173
 ```
@@ -93,6 +93,32 @@ npm run dev      web-agi: Vite dev server
 ```
 
 Per-workspace scripts are listed in each package's README.
+
+## The pre-commit hook
+
+`npm install` points git's `core.hooksPath` at [`.githooks/`](.githooks/), and
+[`.githooks/pre-commit`](.githooks/pre-commit) runs `npm test` and refuses the
+commit if it does not pass. The whole suite is about four seconds. To wire it up
+by hand, or after cloning without installing:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+It runs the tests against the **working tree**, not against what is staged, so a
+commit of part of a dirty tree is checked against all of it.
+
+Two ways past it, for the commits that need them:
+
+```sh
+git commit --no-verify      # skip the check for this commit
+SKIP_TESTS=1 git commit     # the same, for a shell doing several
+```
+
+One of them is needed on a machine with no game files: `web-agi`'s tests read a
+game out of `web-agi/public/games/`, so without `game:sync` having been run the
+suite does not pass and every commit is refused. The full output of a failed run
+is left in `.git/pre-commit-tests.log`.
 
 ## Licence
 
