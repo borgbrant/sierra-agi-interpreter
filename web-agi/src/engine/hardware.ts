@@ -101,6 +101,9 @@
  */
 import type { SoundChip } from '../audio/output.ts';
 import type { DisplayMode } from '../render/drivers/driver.ts';
+import { HERCULES_PICTURE_ROWS } from '../render/drivers/hercules.ts';
+import { PICTURE_HEIGHT } from '../render/screens.ts';
+import { IBM_CELL } from '../render/text.ts';
 
 /**
  * Values of the monitor variable, 26.
@@ -168,6 +171,28 @@ export function monitorTypeFor(mode: DisplayMode): number {
  */
 export function hasInputRow(mode: DisplayMode): boolean {
   return mode !== 'hercules';
+}
+
+/**
+ * How many rows of the character grid the picture covers, on this display.
+ *
+ * The same arithmetic {@link hasInputRow} rests on, and the reason it is a
+ * function of its own is M21: `show.pic` clears the text the picture lands on,
+ * and "where the picture lands" is not the same place on every display.
+ *
+ * ```text
+ * CGA, EGA, composite   168 rows in 8-row cells   -> the grid's rows 1 to 21
+ * Hercules              336 rows in 14-row cells  -> the grid's rows 1 to 24
+ * ```
+ *
+ * King's Quest I is where it showed. It prints its copyright and "Press any key
+ * to continue." on rows 22 and 24 and then calls `show.pic`; on EGA those rows
+ * are below the picture and survive, which is right, and on Hercules they are
+ * *under* it and must not. Clearing a fixed 21 rows left the prompt sitting
+ * over the first room of the game.
+ */
+export function pictureRowsFor(mode: DisplayMode): number {
+  return mode === 'hercules' ? HERCULES_PICTURE_ROWS : PICTURE_HEIGHT / IBM_CELL.height;
 }
 
 /**

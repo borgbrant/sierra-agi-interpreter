@@ -367,3 +367,55 @@ test('the four-colour CGA matches a capture of the real interpreter', { skip: sk
   );
   assert.ok(agreement > AGREEMENT.wasBefore * 2, 'and far past what the old table reached');
 });
+
+test('the intro prompt is cleared by the picture that lands on it (Hercules)', { skip }, async () => {
+  // M21. "Press any key to continue." sits on row 24, which is below the
+  // picture on EGA and *under* it on Hercules, where 336 device rows in 14-row
+  // cells reach the grid's row 24. `show.pic` cleared a fixed 21 rows, so on
+  // Hercules the prompt stayed on screen over the first room of the game.
+  const { source, resources } = await openGame();
+  const objects = parseObjectFile((await source.read('OBJECT'))!);
+  const vocabulary = Vocabulary.parse((await source.read('WORDS.TOK'))!);
+  const interpreter = readInterpreterVersion((await source.read('AGIDATA.OVL'))!);
+
+  const rowsOf = (machine: Machine, row: number) =>
+    [...machine.textLayer.chars.subarray(row * 40, row * 40 + 40)]
+      .map((code) => (code ? String.fromCharCode(code) : ' '))
+      .join('')
+      .trim();
+
+  const run = (mode: 'ega' | 'hercules') => {
+    const machine = new Machine({
+      resources,
+      objects,
+      vocabulary,
+      commandCount: interpreter.commandCount,
+    });
+    machine.setHandlers(buildHandlers());
+    machine.setDisplayMode(mode);
+
+    const cycle = new Cycle(machine);
+    cycle.start(0);
+
+    // Up to the prompt the intro ends on.
+    for (let i = 0; i < 400 && !machine.pending; i++) {
+      cycle.runOnce();
+      if (/any key/i.test(rowsOf(machine, 24))) break;
+    }
+    const before = rowsOf(machine, 24);
+
+    // Then the key it asks for, and the room it opens.
+    for (let i = 0; i < 200; i++) {
+      machine.handleKey(keyNamed('Enter'));
+      cycle.runOnce();
+      if (!rowsOf(machine, 24)) break;
+    }
+    return { before, after: rowsOf(machine, 24) };
+  };
+
+  for (const mode of ['hercules', 'ega'] as const) {
+    const { before, after } = run(mode);
+    assert.match(before, /Press any key/, `${mode}: the intro reaches its prompt`);
+    assert.equal(after, '', `${mode}: and the prompt is gone once the game starts`);
+  }
+});

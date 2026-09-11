@@ -19,8 +19,6 @@
  * for 1 is asking for a status line above it, and a game asking for 0 is asking
  * for the picture at the very top of the screen. See {@link pictureRow}.
  */
-import { PICTURE_HEIGHT } from '../render/screens.ts';
-
 
 /** The rows a script may move. */
 export interface ScreenLayout {
@@ -59,15 +57,6 @@ export const DEFAULT_LAYOUT: ScreenLayout = {
  * Kept for the display drivers' tests, which draw a frame without a machine.
  */
 export const DEFAULT_PICTURE_ROW = 1;
-
-/**
- * How many character rows the picture covers.
- *
- * 168 lines in 8-line cells. The number matters wherever the picture's *area*
- * does rather than its pixels -- `show.pic` clearing the text under it, for
- * one.
- */
-export const PICTURE_ROWS = PICTURE_HEIGHT / 8;
 
 /**
  * The row the picture starts at, for a layout.

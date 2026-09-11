@@ -9,7 +9,8 @@
  * itself -- scripts do `assignn(202, 2)` then `load.pic(202)`.
  */
 import { Screens } from '../../render/screens.ts';
-import { PICTURE_ROWS, pictureRow } from '../layout.ts';
+import { pictureRow } from '../layout.ts';
+import { pictureRowsFor } from '../hardware.ts';
 import type { Handler } from '../machine.ts';
 
 export const GRAPHICS: Record<string, Handler> = {
@@ -59,9 +60,15 @@ export const GRAPHICS: Record<string, Handler> = {
     // picture -- which was checked, and was one game's answer. King's Quest I
     // opens by displaying its copyright and "Press any key to continue" on
     // rows 22 and 24, *then* calling show.pic, and both lines vanished. They
-    // are below the picture; a blit of the picture area cannot reach them.
+    // are below the picture on EGA, and a blit of the picture area cannot
+    // reach them.
+    //
+    // On Hercules it *does* reach them, which is M21: 336 device rows in
+    // 14-row cells is the grid's rows 1 to 24, so the same two lines are under
+    // the picture rather than below it. Clearing a fixed 21 rows left "Press
+    // any key to continue." sitting over the first room of the game.
     const top = pictureRow(m.layout);
-    m.textLayer.clearRows(top, top + PICTURE_ROWS - 1);
+    m.textLayer.clearRows(top, top + pictureRowsFor(m.displayMode) - 1);
   },
 
   // A debugging command in the original. The engine offers the same view

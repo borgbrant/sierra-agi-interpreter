@@ -177,7 +177,19 @@ export const PICTURE_LEFT = (HERCULES_WIDTH - PICTURE_WIDTH * HGC_PIXEL_WIDTH) /
  * a few rows above it.
  */
 export const HERCULES_CELL_WIDTH = (PICTURE_WIDTH * HGC_PIXEL_WIDTH) / 40;
-export const HERCULES_CELL_HEIGHT = (PICTURE_HEIGHT * HGC_PIXEL_HEIGHT) / 24;
+
+/**
+ * How many rows of the character grid the picture covers here: rows 1 to 24.
+ *
+ * It was a literal divisor below until M21, which is where it bit. The number
+ * is not only the cell height's denominator -- it is also how far down the grid
+ * a `show.pic` reaches, and on this display that is three rows further than on
+ * any other. See `engine/hardware.ts`.
+ */
+export const HERCULES_PICTURE_ROWS = 24;
+
+export const HERCULES_CELL_HEIGHT =
+  (PICTURE_HEIGHT * HGC_PIXEL_HEIGHT) / HERCULES_PICTURE_ROWS;
 
 /** The cell as drawn without `HGC_FONT`: the engine's own font, stretched. */
 export const HERCULES_FALLBACK_CELL: CellMetrics = {

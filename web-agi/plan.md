@@ -3520,3 +3520,60 @@ it. Nothing in this milestone settles that.
 
 And the capture is one screen of one game. `test/captures/kq1-cga-castle.png`
 is the first CGA reference this project has, against seven for Hercules.
+
+---
+
+## M21 — Where the picture lands — complete
+
+Not planned. A one-line report: *"the text 'press any key to continue.' in the
+end of the intro/credit-screen is not disappearing when the game starts in
+hercules mode"*. King's Quest I only, Hercules only, and reproducible in four
+lines of harness.
+
+### The defect
+
+M18 taught `show.pic` to clear only the rows the picture covers, rather than all
+twenty-five, because King's Quest prints its copyright and its prompt on rows 22
+and 24 *before* showing a picture and both were vanishing. The comment it left
+behind said the right thing about the wrong number of displays:
+
+> They are below the picture; a blit of the picture area cannot reach them.
+
+True on an 8-row cell and false on a 14-row one. The picture is 168 AGI rows,
+and what that is in *character rows* depends on the display:
+
+```text
+CGA, EGA, composite   168 rows in 8-row cells    the grid's rows 1 to 21
+Hercules              336 rows in 14-row cells   the grid's rows 1 to 24
+```
+
+So on Hercules rows 22 to 24 are under the picture, the original's blit takes
+them, and ours -- clearing a hard-coded 21 -- did not. The prompt stayed on
+screen over the first room.
+
+The engine already knew this fact and had written it down twice without joining
+them up. `hasInputRow` is documented in `engine/hardware.ts` with exactly this
+arithmetic -- Hercules has no row left for a command line *because* its picture
+reaches row 24 -- and `HERCULES_CELL_HEIGHT` was `PICTURE_HEIGHT * 2 / 24` with
+the 24 as a bare divisor. Neither was reachable from `show.pic`.
+
+### The fix
+
+`pictureRowsFor(mode)` beside `hasInputRow`, since they rest on the same
+sentence, and the 24 named as `HERCULES_PICTURE_ROWS` so the cell height is
+derived from it rather than repeating it. `layout.ts`'s `PICTURE_ROWS` constant
+is gone: a single number could only ever have been right for some displays.
+
+### What it is worth watching for
+
+This is the second bug of its shape. Both were an engine constant that encoded a
+display's geometry -- M18's twenty-five rows, M21's twenty-one -- and both were
+invisible until a second game or a second display asked. Anything above the
+driver seam holding a pixel count or a row count is a candidate for the next
+one.
+
+Two tests: `pictureRowsFor` against the cell height it is derived from, and the
+end-to-end one -- King's Quest's intro run to its prompt, a key pressed, and the
+row checked in both modes. The second fails on the old code, which was checked
+rather than assumed.
+

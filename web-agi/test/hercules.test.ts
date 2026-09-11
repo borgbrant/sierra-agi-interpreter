@@ -21,7 +21,7 @@ import { calibrate, decodePng, luma, otsu, STATUS_ROWS } from '../scripts/rectif
 import type { SoundChip } from '../src/audio/output.ts';
 import { buildHandlers } from '../src/engine/commands/index.ts';
 import { Cycle } from '../src/engine/cycle.ts';
-import { MONITOR } from '../src/engine/hardware.ts';
+import { MONITOR, pictureRowsFor } from '../src/engine/hardware.ts';
 import { DEFAULT_PICTURE_ROW } from '../src/engine/layout.ts';
 import { CommandLine, NumberQuestion } from '../src/engine/interaction.ts';
 import { Machine } from '../src/engine/machine.ts';
@@ -36,7 +36,9 @@ import {
   HGC_PIXEL_HEIGHT,
   HGC_PIXEL_WIDTH,
   HERCULES_CELL,
+  HERCULES_CELL_HEIGHT,
   HERCULES_HEIGHT,
+  HERCULES_PICTURE_ROWS,
   HERCULES_PALETTE_RGB,
   HERCULES_WIDTH,
   herculesSolid,
@@ -417,6 +419,22 @@ test('text takes the solid side of a dithered colour', () => {
  * colour's regions survives, and the check is that it is a straight line in the
  * table's densities.
  */
+test('the picture covers three more rows here than anywhere else', () => {
+  // 336 device rows in 14-row cells is the grid's rows 1 to 24, where 168 rows
+  // in 8-row cells is rows 1 to 21. The difference is why `show.pic` cannot
+  // clear a fixed number of rows -- see `engine/hardware.ts`.
+  assert.equal(pictureRowsFor('hercules'), 24);
+  assert.equal(pictureRowsFor('hercules'), HERCULES_PICTURE_ROWS);
+
+  for (const mode of ['ega', 'cga', 'composite'] as const) {
+    assert.equal(pictureRowsFor(mode), 21, mode);
+  }
+
+  // And it is the same number the cell height is derived from, so the two
+  // cannot drift apart.
+  assert.equal(HERCULES_CELL_HEIGHT * HERCULES_PICTURE_ROWS, PICTURE_HEIGHT * HGC_PIXEL_HEIGHT);
+});
+
 const captureDir = CAPTURES_AT;
 const haveCaptures = existsSync(captureDir);
 

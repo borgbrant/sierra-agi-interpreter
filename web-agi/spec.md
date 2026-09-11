@@ -427,12 +427,25 @@ starts at 0, 22 when it starts at 1, which is the row immediately below a
 
 `show.pic` clears the text under the picture and nothing else. AGI has one
 framebuffer, so publishing the picture writes over whatever was on it — but only
-where it lands, which is the twenty-one rows from the play window's top. A game
-may print below the picture and then show it, and King's Quest I does: its
-copyright and "Press any key to continue." go on rows 22 and 24 before
-`show.pic`. Games clear those rows themselves — Larry calls
-`clear.lines(22, 24, 0)` at the top of several rooms — which is what they must
-do if the picture cannot reach them.
+where it lands, and **where it lands depends on the display**:
+
+```text
+CGA, EGA, composite   168 rows in 8-row cells    the grid's rows 1 to 21
+Hercules              336 rows in 14-row cells   the grid's rows 1 to 24
+```
+
+`pictureRowsFor` in `engine/hardware.ts` is that number, and it is the sibling
+of `hasInputRow`, which rests on the same arithmetic — the display with no row
+left for a command line is the display whose picture reaches three rows further
+down.
+
+A game may print below the picture and then show it, and King's Quest I does:
+its copyright and "Press any key to continue." go on rows 22 and 24 before
+`show.pic`. On EGA those rows are below the picture and survive, and games clear
+them themselves — Larry calls `clear.lines(22, 24, 0)` at the top of several
+rooms. On Hercules the same two rows are *under* the picture and the blit takes
+them, which is what a clear of a fixed twenty-one rows got wrong: the prompt sat
+over the first room of the game (M21).
 
 Text uses the standard 8x8 IBM PC font. The engine embeds a font bitmap as a
 build asset; it is not read from the game files.
