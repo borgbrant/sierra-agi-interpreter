@@ -3816,3 +3816,111 @@ defects were commands implemented as most of the original; this one was a table
 sized from the wrong game. Neither would have been found by a unit test. What
 finds them is playing a game the engine was not written against, all the way to
 its end.
+
+## M24 — The third game — complete
+
+Police Quest I: In Pursuit of the Death Angel is bundled and served. It is the
+game M18's claim was actually written for, and the one M23 asked for at its
+close: a game the engine has never been pointed at, built on an interpreter the
+version table had never been asked about.
+
+`agi-extract/data/pq1` is now one of `game:sync`'s defaults, and it appears on
+the picker beside the other two. 704 KiB, twelve files — four VOL files rather
+than three, which is the only thing about its shape that differs.
+
+### The version table had a hole where 2.903 is
+
+Its `AGIDATA.OVL` says `Version 2.903`, and the specification's version table
+does not list that version at all. So it fell through `readInterpreterVersion`'s
+fallback to the bundled game's count with a `why` attached — which is exactly
+the insurance `resources/interpreter.ts` says it is, working as designed and
+saying so.
+
+The count it fell back to happened to be right, but "happened to be" is not
+something to serve a game on, so it was measured. All 118 scripts were decoded
+at every count in the table:
+
+```text
+count 155 (2.089)   5 scripts fail; highest reached 0x9A
+count 161 (2.272)   3 scripts fail; highest reached 0xA0
+count 170 (2.440)   all 118 decode; highest reached 0xA9
+count 173 (2.917)   all 118 decode; highest reached 0xA9
+count 181 (3.002)   all 118 decode; highest reached 0xA9
+```
+
+170, and nothing above it changes anything. The highest opcode in the game is
+0xA9 — `close.window`, the same command that set 2.440's count two milestones
+after the specification said 169. So `'2.903': 170` is in the table now, with
+the measurement in the comment beside it, and the version is read rather than
+assumed.
+
+That 2.903 sits between 2.440 and 2.917 and takes the lower of the two is what
+the specification's table implies anyway. It is recorded as measured rather than
+interpolated because interpolation is the kind of reasoning that is right until
+it is not, and a count that is too *high* desyncs the reader off the end of a
+script rather than failing at it.
+
+### Nothing else needed changing
+
+Which is the result worth recording. The picker is drawn from `games/index.json`
+and needed no code. The engine ran it on the first attempt: past the title
+screen and into a room, 18,759 of 26,880 picture pixels drawn, ego walking in
+all four directions, and `machine.stubs` empty — no command the game reached
+that the engine has not got.
+
+Its interpreter tables are found at 0x1D0A, 402 bytes above Larry's and 34 below
+King's Quest's — a third offset, which is the whole point of M18 reading them
+from the game's own copy rather than from a constant. Its Hercules dither table
+reads as a dither table: black draws nothing, white draws all sixty-four.
+
+`test/thirdgame.test.ts` holds the four tests: the version is read and not
+fallen back to, all 118 scripts decode with every jump on an instruction
+boundary and none reaching past 0xA9, the tables come from its own copy at its
+own offset, and the game boots and walks with no stubs. They skip when
+`agi-extract/data/pq1` is not there, the same rule the other games' tests follow.
+
+### What it is worth watching for
+
+M23 said to look at the numbers the engine holds as a fixed size rather than
+reads — the priority band base, the sound channel count — before a third game
+found them. A third game has now been added and found none of them, which is
+weak evidence that they are fine and no evidence at all that they are.
+
+What has not been done here is the thing that found every defect in M22 and M23:
+playing the game to its end. Booting into a room and walking four directions is
+the M18 test, and M18's own conclusion was that it is not the test that finds
+things. A Police Quest walk-through is the next milestone, not this one.
+
+### What was committed that should not have been
+
+Adding a third game turned up a fourth thing: the first two were in the
+repository. Not in `agi-extract/data`, which is git-ignored and always was, but
+in `web-agi/public/games/` — the served copy, 828 KiB of Larry's and King's
+Quest's VOL files, resource directories, OBJECT and WORDS.TOK, committed in
+M18's own commit and pushed to a public GitHub repository, where they sat for
+five milestones.
+
+The `.gitignore` had a rule for exactly this. It named `web-agi/public/game/`,
+singular — the path the bundled copy lived at before M18's picker moved it to
+`games/`. The rename left the rule matching nothing, and nothing complained,
+because a `.gitignore` rule that has stopped matching is indistinguishable from
+one whose files are simply absent. The comment above it still read "never
+committed", which is how it was read on every glance afterwards, including the
+one that added Police Quest.
+
+The same argument caught `test/captures/` — 19 MB of screenshots of the original
+interpreter running the games. Those had been committed deliberately, with the
+reasoning recorded in `hgc-reference.ts`: a test whose fixture is missing is a
+test that silently skips, and this suite had been bitten by that before. It is a
+real argument and it lost anyway. What the tests actually need from a capture is
+a handful of measured numbers, and those are written down in the reference files
+next to the tests. The frames themselves are Sierra's.
+
+Both are purged from the history rather than merely deleted, the ignore rules
+now name paths that exist, and the tests that read either skip when it is
+absent — which the capture tests already did, and the game-data tests have done
+since M18.
+
+The lesson is narrow and worth stating plainly: an ignore rule is not a fact
+about the repository, it is a pattern, and a pattern that no longer matches is
+silent. `git ls-files` is the fact. It was never run.

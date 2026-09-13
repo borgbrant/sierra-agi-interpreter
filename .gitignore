@@ -3,12 +3,26 @@ node_modules
 **/data
 **/dist
 
-# Captures a test reads live in web-agi/test/captures/ and are committed.
-# This holds the ones no test opens, kept as reference material only.
-screenshots-from-original
+# Nothing Sierra made is committed to this repository. Not the game resources,
+# not pictures of them running. The engine is this project's; the games it runs
+# are not, and a public repository that carries them is redistributing them.
+#
+# This rule used to name `web-agi/public/game/` -- the singular path the bundled
+# copy lived at before M18's picker moved it to `games/`. The rename left the
+# rule pointing at nothing, and two games' worth of resources were committed
+# through the hole it left. Hence the trailing-slash-free globs below: they
+# match wherever the directory sits.
 
-# Bundled game resources are copied in by `npm run game:sync`, never committed.
-web-agi/public/game/
+# Game resources, copied in by `npm run game:sync`. Run it after cloning.
+web-agi/public/games/
+public/games/
+
+# Screen captures of the original interpreter, read by the Hercules and CGA
+# comparison tests. Those tests skip when these are absent, which is the normal
+# case for a clone; put your own captures here to run them.
+web-agi/test/captures/
+test/captures/
+screenshots-from-original
 
 # Where `npm run logic:dump` puts a game's scripts. Regenerated, never read by
 # anything that runs; it is there to be grepped while working out a puzzle.

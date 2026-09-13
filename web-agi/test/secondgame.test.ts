@@ -54,9 +54,9 @@ const present = existsSync(KQ1);
 const skip = present ? false : 'agi-extract/data/kq1 is not here';
 
 /**
- * The capture is in the repository, in `test/captures/`, so this normally runs.
- * It is still guarded: a fixture that has gone missing should fail loudly at
- * the assertion rather than quietly at the file read.
+ * The capture is not in the repository -- it is a frame of somebody else's game
+ * -- so this skips unless `test/captures/` has been filled in locally. The
+ * guard is the same one the game data itself gets.
  */
 const skipCapture = skip || (existsSync(CAPTURE) ? false : `${CAPTURE} is not here`);
 

@@ -40,6 +40,13 @@ export const COMMAND_COUNT_BY_INTERPRETER: Record<string, number> = {
   // Desync would corrupt the walk rather than tidy it, so the count is 170.
   // Raising the limit further changes nothing: 0xA9 is the highest used.
   '2.440': 170,
+  // Police Quest I's interpreter, which the specification's table does not
+  // name: it falls between 2.440 and 2.917, and takes the lower of the two.
+  // Measured rather than interpolated -- the highest opcode in all 118 of its
+  // scripts is 0xA9, the same close.window that set 2.440's count, and every
+  // script decodes to its message section at 170 with every jump landing on an
+  // instruction boundary. Raising it to 2.917's 173 changes nothing.
+  '2.903': 170,
   '2.917': 173,
   '2.936': 175,
   '3.002.149': 181,

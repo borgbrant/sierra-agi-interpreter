@@ -17,12 +17,15 @@
  * that the original barely dithered. The mean luminance of a colour's regions
  * survives that smoothing, and it is what these numbers are.
  *
- * The three captures these tests read are in the repository, beside the tests
- * in `test/captures/`. They are large -- about 19 MB with the CGA one -- and
- * they are frames of somebody else's game, both of which argued for keeping
- * them out; what argued louder is that a test whose fixture is missing is a
- * test that silently skips, and this suite has been bitten by that once
- * already. The four captures no test reads stay out.
+ * The three captures these tests read go in `test/captures/`, beside the tests,
+ * and are *not* in the repository. They were committed once, on the argument
+ * that a test whose fixture is missing is a test that silently skips and this
+ * suite had been bitten by that before. That argument lost: they are frames of
+ * somebody else's game, and a public repository carrying them is redistributing
+ * them. The numbers measured from them are recorded below, which is the part
+ * worth keeping; a clone without the captures skips the tests that read them.
+ *
+ * Take your own with DOSBox-X and drop them here to run those tests.
  */
 
 import { dirname, resolve } from 'node:path';

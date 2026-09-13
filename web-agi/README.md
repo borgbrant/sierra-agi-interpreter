@@ -33,11 +33,11 @@ web-agi/public/games/    <- game:sync writes here (the served copy; generated)
 Both paths are relative to the repository root, and both are git-ignored.
 
 **The source.** Drop each copy into its own directory under
-`agi-extract/data/` — `data/lsl1`, `data/kq1`, and so on. The whole DOS
-directory is fine, extra files are ignored, and the directory's name becomes the
-game's id in the served copy. `game:sync` with no argument looks for `lsl1` and
-`kq1`; one that is not there is reported and skipped, so a machine with one game
-syncs one game. Any other directory works if you pass it to the script.
+`agi-extract/data/` — `data/lsl1`, `data/kq1`, `data/pq1`, and so on. The whole
+DOS directory is fine, extra files are ignored, and the directory's name becomes
+the game's id in the served copy. `game:sync` with no argument looks for `lsl1`,
+`kq1` and `pq1`; one that is not there is reported and skipped, so a machine
+with one game syncs one game. Any other directory works if you pass it to the script.
 
 Keeping them there means the sibling `agi-extract` CLI can be pointed at the
 same copy (`--input agi-extract/data/lsl1`) rather than a second one.

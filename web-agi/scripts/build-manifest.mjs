@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(here, '..', '..');
 const DATA = resolve(REPO_ROOT, 'agi-extract', 'data');
-const DEFAULT_SOURCES = [resolve(DATA, 'lsl1'), resolve(DATA, 'kq1')];
+const DEFAULT_SOURCES = [resolve(DATA, 'lsl1'), resolve(DATA, 'kq1'), resolve(DATA, 'pq1')];
 const GAMES = resolve(here, '..', 'public', 'games');
 
 /**
@@ -37,6 +37,7 @@ const GAMES = resolve(here, '..', 'public', 'games');
 const TITLES = {
   lsl1: 'Leisure Suit Larry in the Land of the Lounge Lizards',
   kq1: "King's Quest I: Quest for the Crown",
+  pq1: 'Police Quest: In Pursuit of the Death Angel',
 };
 
 /** The interpreter names itself in AGIDATA.OVL, in the line it prints. */

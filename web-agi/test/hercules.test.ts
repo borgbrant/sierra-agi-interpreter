@@ -408,9 +408,9 @@ test('text takes the solid side of a dithered colour', () => {
  * The table above is a copy of the interpreter's; this is what the original's
  * own screen says about it.
  *
- * Skipped when `test/captures/` is absent, which is no longer the normal case
- * for a fresh clone: the captures are large and not this project's to
- * redistribute.
+ * Skipped when `test/captures/` is absent, which is the normal case for a fresh
+ * clone: the captures are large and not this project's to redistribute, so they
+ * are git-ignored. Supply your own to run this.
  *
  * What is measured is **brightness**, not bits. Half of the table's patterns
  * alternate on a one-pixel pitch and a capture smooths those into a flat
