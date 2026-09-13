@@ -320,6 +320,7 @@ export const OBJECTS: Record<string, Handler> = {
       o.followStepSize = step === 0 ? o.stepSize : step!;
       o.followFlag = flag!;
       o.followStarted = false;
+      o.followCount = 0;
       o.update = true;
       m.state.setFlag(flag!, false);
     }),

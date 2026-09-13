@@ -152,15 +152,141 @@ things follow for a test. The parser has to carry an unknown token through to
 the script rather than rejecting it, and the string is case-sensitive to type
 but not necessarily to match, which this file does not settle.
 
+## What the engine made of it
+
+`kq1.steps.ts` beside this file plays every row of the table above -- all
+hundred and fifty-nine of the points they add up to -- which settles most of
+the questions the table leaves open. What it found, so that the next reader
+does not have to find it again:
+
+- **The rooms.** The outdoors is a six-by-eight grid of screens wrapping at
+  every edge, rooms 1 to 48, numbered along alternate rows in alternate
+  directions; the interiors are numbered above it. The mapping from the names
+  above to those numbers is the `ROOM` table in the steps file.
+- **The order is not the source's.** Rows 65 to 91 -- the well, the dragon, the
+  condor, the rat and the treasury -- are played *before* rows 55 to 64, the
+  beanstalk and the clouds, and not after. The reason is the giant, below.
+  Nothing else in the path depends on the order.
+- **Two rows are not typed as written.** `push witch into oven` is four words
+  and logic 65 tests `said(push, witch)`, which matches three, so the extra
+  noun makes row 36 miss. And `open cupboard` and `take cheese` are one line
+  each, not the two that rows 37 and 38 ask for -- two points apiece, which is
+  the four row 38 claims for both.
+- **Row 42 is not a scoring line on its own.** Giving the woodcutters an empty
+  bowl pays three; saying `fill` in front of them then fills it and pays two,
+  and *that* is what the fiddle is offered for. Filling it beforehand scores
+  the same and leaves the fiddle on the wall.
+- **Row 47 is three points for `open pouch`, not for looking in the stump.**
+  The screen's total is right; the split across rows 45 to 47 is not.
+- **Rows 22, 30 and 32 are dice, not waits.** The elf is in his room on a throw
+  under 85 in 250 and then takes another 90 to 250 cycles to walk into sight;
+  the witch is at home on half the throws, and on a quarter of the rest she
+  never comes home at all. Each of them is played as leave-and-return.
+- **Rows 61 and 62 cannot be played as written, and that is why the order
+  changed.** There is no tree to stand behind: logic 58's screen is open cloud
+  with a few one-pixel trunks on it, and the giant is `follow.ego` at ego's own
+  speed, which in a closed room catches anybody -- a rollout of the chase says
+  inside ninety cycles, whatever the player does, against the seven hundred and
+  fifty the game wants before he falls asleep. Logic 58 asks instead for one of
+  three protections, and any of them turns the giant from `follow.ego` into
+  `wander`: the magic shield, the fairy godmother's spell, or the ring. The
+  spell lasts two thousand five hundred cycles, which is not enough to cross
+  the map to the clouds. The ring is spent: logic 0 takes its three points back
+  when the spell runs out, and logic 52 takes them at the bottom of the well
+  whether it has run out or not. Only the shield is still there afterwards --
+  so the shield is fetched first, and rows 65 to 91 move in front of rows 55
+  to 64 to fetch it.
+- **Rows 65 and 92 are the two casualties of that.** Both are walks between
+  screens, and in this order they join different screens. Row 65's two ponds
+  west of the mountain are never crossed at all: the well is reached from the
+  gnome instead, six screens south and east by the meadows the goat was led
+  through, keeping clear of room 21 where the witch flies. And row 92's "north
+  twice, east twice" is the walk home from the mossy rock, which in this order
+  is three acts earlier; from the foot of the mountain the same castle door is
+  three screens the other way.
+- **Row 55's "east twice" is four, and not the two it looks like.** The screen
+  directly west of the mossy rock the caverns let you out at is a swamp,
+  walkable only round its rim and with no way across from the side you come in
+  on. The flower meadow is reached round the north of it, by the woodcutters'
+  cottage and the blue lake.
+- **The well's points are paid on different rows than the source gives them.**
+  `lower rope` pays nothing; the point row 69 gives it is logic 49's, for
+  arriving in the shaft, which is row 70. Row 73's point is logic 51's, for
+  arriving in the dragon's cave, and not for `go through hole` -- the way
+  through is a two-pixel box you walk into, `posn(0,31,111,32,130)`, and there
+  is no line to type. Rows 76 and 77 are the same again: `climb rope` pays
+  nothing, and the four points are logic 52's, two for coming back from the
+  dragon and two for the bucket refilling itself on the way. Every screen's
+  total is right; the rows they are split across are not.
+- **Row 71's `fill bucket` works as written**, though logic 49's own handler is
+  `get water` and answers "You cannot get the water" -- logic 101 takes the
+  line first, while swimming, and pays for it.
+- **Row 79 is a jump, not a wait.** "Let the bird take you" is `said(jump)`:
+  logic 22 wants flag 143, which is what jumping sets, and it counts only from
+  between twenty and thirty-five away from the bird with Graham well below it.
+  The bird `wander`s and is turned back north whenever it drops below y=115, so
+  the place to jump from moves while you walk to it.
+- **Row 82's hole is painted as water.** Logic 48 knows Graham has fallen in by
+  flag 0, ego on water, which is also what stops a route planner walking into
+  it. It is the only thing on this path that needs the harness's `{ swims }`,
+  and the ponds the source wanted it for are never crossed.
+- **Row 90 is one bite, not two.** `eat mushroom` shrinks Graham on the first
+  line and answers "You can't eat the mushroom if you don't have it!" on the
+  second, because he has eaten it.
+- **The source's table is right and the game's own total is wrong.** Row for
+  row, the table and the game agree: both add to a hundred and fifty-nine,
+  where logic 0 puts a hundred and fifty-eight in `v7` and calls that the
+  maximum. The odd point is the castle door. Logic 2 pays one for opening it --
+  flag 193 -- and then one more for opening it a second time, flag 206, with
+  nothing else asked; and coming home to the king means opening it a second
+  time, because nothing else in that room admits anybody and the doors do not
+  open for the returning hero on their own. So a finished game scores one past
+  full marks. The discrepancy the table warns about is in the game.
+- **Six bugs in the engine, all found by playing this.** `collides` counted the
+  base row an object was *leaving* as a row it crossed, so a character who
+  began a cycle beside another and stepped diagonally past him was refused the
+  step and pinned there -- which the goat, following a pace behind and coming
+  to rest at ego's shoulder, made permanent at row 51. `updatePositions`
+  refused a step that would put a tall view's top above the picture, and threw
+  away the screen edge it had just recorded when it did, so a tall view never
+  reported touching the horizon and the beanstalk could not be climbed past its
+  second screen. `saveArea` clipped only the far corner of a sprite's
+  rectangle, so an object parked entirely off the picture indexed past the end
+  of the screens. `follow.ego` re-chose its direction every cycle it was
+  blocked instead of committing to a detour, which glues a follower to the far
+  side of whatever it walked into. And the view table held sixteen slots
+  against King's Quest's OBJECT file, which declares seventeen and means it:
+  logic 77 animates object 16, and the leprechauns' treasury came up without
+  it. `test/motion.test.ts` and `test/viewtable.test.ts` keep the cases.
+- **Row 51's "west one" is a cul-de-sac.** West of the corral is the far half
+  of the same goat pen, whose own logic says "the only way to get in is through
+  the gate" -- and the gate is on the screen behind. Nor would it help: inside
+  the pen ego wears view 67, Graham and the goat side by side, eighteen pixels
+  wide against his usual six, and that fence's gaps are about six. South out of
+  the gate and then west reaches the same bridge with the same goat, and the
+  four points are paid.
+
+## What the harness grew for it
+
+One new kind of step, `stalk`, and King's Quest asks for it twice. Both the
+condor and the rat have to be approached to a particular distance and no
+nearer -- the bird takes nobody who is not between twenty and thirty-five away
+and below it, the rat takes the cheese from between sixteen and thirty-four and
+kills anyone who gets closer -- and neither distance can be reached by walking
+to a spot, because both of them are walking too. `stalk` steers a cycle at a
+time towards the gap it is asked for and stops there. It is `flee` with the
+sign changed, and it sits beside it.
+
 ## What this does not pin down
 
 Worth knowing before it is leaned on:
 
 - **No room numbers.** Every location above is the source's own name for it. A
   test that wants to assert *where* the player is has to map these itself.
-- **The score does not add up.** The source's steps total 159 against a stated
-  maximum of 158, and the discrepancy is in the source rather than introduced
-  here. Do not assert a running total from this file without re-deriving it.
+- **The score does not add up, and the source is not the one at fault.** The
+  steps above total 159 against the game's stated maximum of 158. Playing them
+  says the game pays exactly those 159 -- see *What the engine made of it* for
+  which point the game gives away twice.
 - **The vague steps are the timed ones.** "Avoid the wizard", "wait for the
   elf", "stay behind the tree until the giant sleeps", "let the bird take you"
   all depend on cycles and on where the player stands, and none of that is a

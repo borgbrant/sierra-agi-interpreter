@@ -84,6 +84,7 @@ export interface SavedObject {
   followStepSize: number;
   followFlag: number;
   followStarted: boolean;
+  followCount: number;
   wanderCount: number;
   cycleType: number;
   cycleFlag: number;
@@ -382,6 +383,7 @@ function captureObject(object: Machine['viewTable']['objects'][number]): SavedOb
     followStepSize: object.followStepSize,
     followFlag: object.followFlag,
     followStarted: object.followStarted,
+    followCount: object.followCount,
     wanderCount: object.wanderCount,
     cycleType: object.cycleType,
     cycleFlag: object.cycleFlag,
@@ -445,6 +447,7 @@ function restoreObject(machine: Machine, saved: SavedObject): void {
   object.followStepSize = saved.followStepSize;
   object.followFlag = saved.followFlag;
   object.followStarted = saved.followStarted;
+  object.followCount = saved.followCount ?? 0;
   object.wanderCount = saved.wanderCount;
   object.cycleType = saved.cycleType as typeof object.cycleType;
   object.cycleFlag = saved.cycleFlag;

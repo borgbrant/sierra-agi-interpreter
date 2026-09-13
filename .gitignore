@@ -9,3 +9,7 @@ screenshots-from-original
 
 # Bundled game resources are copied in by `npm run game:sync`, never committed.
 web-agi/public/game/
+
+# Where `npm run logic:dump` puts a game's scripts. Regenerated, never read by
+# anything that runs; it is there to be grepped while working out a puzzle.
+web-agi/.logic/

@@ -51,6 +51,19 @@ test('the table has a fixed number of slots and ego is the first', () => {
   assert.equal(table.at(MAX_VIEW_OBJECTS), undefined, 'a slot past the end is not invented');
 });
 
+test('the table has room for every object the game says it animates', () => {
+  // A game's OBJECT file records how many animated objects its scripts expect,
+  // and the scripts use every one of them: King's Quest declares seventeen and
+  // logic 77, the leprechauns' treasury, animates object 16 -- the seventeenth
+  // slot, and one a sixteen-slot table has nowhere to put. The room then comes
+  // up without the thing that object is, and every command that addresses it
+  // is refused.
+  assert.ok(
+    MAX_VIEW_OBJECTS >= objects.maxAnimatedObjects,
+    `the game animates ${objects.maxAnimatedObjects} objects into ${MAX_VIEW_OBJECTS} slots`,
+  );
+});
+
 test('a loop or cel past the end of the view is ignored, not applied', () => {
   // The original leaves the object showing what it was showing, and scripts
   // depend on that: blanking it instead makes a character vanish.

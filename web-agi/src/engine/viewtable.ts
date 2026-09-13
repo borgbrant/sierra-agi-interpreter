@@ -24,12 +24,16 @@ import type { Cel } from '../render/sprite.ts';
 /**
  * How many slots the table holds.
  *
- * OBJECT records the game's own maximum (16 for the bundled game), but the
- * interpreter's table is a fixed size regardless, and scripts address slots by
- * number. Allocating the interpreter's size means a script that reaches past
- * the game's own maximum is ignored rather than crashing.
+ * Every game's OBJECT file records how many animated objects it means to use,
+ * and its scripts then address slots by number up to that: Leisure Suit Larry
+ * says sixteen, King's Quest says seventeen, and King's Quest means it --
+ * logic 77, the leprechauns' treasury, animates object 16, which is the
+ * seventeenth slot. The interpreter's own table is a fixed size regardless and
+ * larger than any game asks for, so this is sized to match rather than to one
+ * game, and a script that reaches past the end is ignored rather than
+ * crashing.
  */
-export const MAX_VIEW_OBJECTS = 16;
+export const MAX_VIEW_OBJECTS = 20;
 
 /** The slot the player controls. */
 export const EGO = 0;
@@ -123,6 +127,8 @@ export class ViewObject {
   followStepSize = 0;
   followFlag = 0;
   followStarted = false;
+  /** Steps left of the detour a blocked follower committed to. */
+  followCount = 0;
   /** Cycles left before `wander` picks a new direction. */
   wanderCount = 0;
 

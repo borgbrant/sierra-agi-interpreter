@@ -214,7 +214,11 @@ export function fitsOnScreen(object: ViewObject, horizon: number): boolean {
  * through them, *and* an object that ignores them is not there to be hit. The
  * flag was read one-directionally until the restroom door proved it could not
  * be -- see below. Two objects collide when their horizontal spans overlap and
- * the mover lands on or crosses the other's current base row this cycle.
+ * the mover lands on the other's base row, or crosses it: it was above and is
+ * now below, or the other way about. Starting the cycle on that row and moving
+ * off it is neither, and treating it as one pins a character who begins beside
+ * another and steps diagonally past him -- King's Quest's goat, following ego
+ * a pace behind, does exactly that and could not be led out of the room.
  *
  * The room outside Lefty's restroom is the case that settles it. Its script
  * draws a 5x57 object with `ignore.objs` at 105,123 and then puts ego at
@@ -236,9 +240,11 @@ export function collides(table: ViewTable, object: ViewObject): boolean {
     if (objectRight <= other.x) continue;
     if (object.x >= otherRight) continue;
 
-    const from = Math.min(object.previousY, object.y);
-    const to = Math.max(object.previousY, object.y);
-    if (other.y >= from && other.y <= to) return true;
+    if (object.y === other.y) return true;
+    const crossed =
+      (object.previousY < other.y && object.y > other.y) ||
+      (object.previousY > other.y && object.y < other.y);
+    if (crossed) return true;
   }
 
   return false;
@@ -451,9 +457,14 @@ function wander(machine: Machine, object: ViewObject): void {
 /**
  * Head towards ego.
  *
- * An object that cannot make progress is nudged onto a random direction so it
- * works its way around whatever it walked into, which is what stops a follower
- * pressing itself into a wall forever.
+ * Straight at ego while the way is clear, and a detour when it is not: an
+ * object that failed to move picks a random direction and *commits to it* for
+ * a random distance before looking at ego again. Committing is the whole point
+ * and not a detail. A follower that re-chose every cycle would jitter against
+ * whatever it walked into and stay glued to the other side of it, which no
+ * amount of hiding gets you away from; the original sends it wandering off,
+ * and that is what makes King's Quest's giant survivable -- stand behind a
+ * tree and he blunders away across the clouds until he falls asleep.
  */
 function followEgo(machine: Machine, object: ViewObject): void {
   const ego = machine.viewTable.ego;
@@ -475,7 +486,21 @@ function followEgo(machine: Machine, object: ViewObject): void {
   if (!object.followStarted) {
     object.followStarted = true;
   } else if (object.didNotMove) {
-    face(machine, object, 1 + Math.floor(Math.random() * 8));
+    // Blocked. Away in some other direction, for long enough to get clear of
+    // whatever it was: the original measures that against the room, taking the
+    // distance from here to the far wall the chosen direction points at.
+    const away = 1 + Math.floor(Math.random() * 8);
+    face(machine, object, away);
+    object.followCount = Math.max(
+      Math.abs(DX[away]!) * (PICTURE_WIDTH - object.x),
+      Math.abs(DY[away]!) * (PICTURE_HEIGHT - object.y),
+    );
+    return;
+  }
+
+  if (object.followCount > 0) {
+    object.followCount -= Math.max(1, object.stepSize);
+    if (object.followCount < 0) object.followCount = 0;
     return;
   }
 
@@ -592,10 +617,19 @@ export function updatePositions(machine: Machine): void {
 
     if (!object.fixedPriority) object.priority = priorityForRow(y, machine.priorityBase);
 
+    // What makes a step legal is the ground, the other objects and the block
+    // rectangle -- and not whether the whole sprite fits on the screen. The
+    // clamp above has already dealt with every way a step can leave the
+    // picture, and the one thing {@link fitsOnScreen} would still catch is a
+    // tall view whose top sticks out above the picture, which the original
+    // draws clipped rather than refusing. Refusing it here also threw away the
+    // edge the clamp had just recorded, and a tall view then never reported
+    // touching the horizon at all: King's Quest puts Graham on a thirty-three
+    // pixel climbing view under a horizon at 30, and the beanstalk could not
+    // be climbed past its second screen.
     const footing = checkFooting(machine.background, object, object.priority);
     const legal =
       footing.allowed &&
-      fitsOnScreen(object, machine.horizon) &&
       !collides(machine.viewTable, object) &&
       !crossesBlock(machine.block, object, oldX, oldY);
 

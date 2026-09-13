@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "game:sync": "node scripts/build-manifest.mjs",
+    "logic:dump": "node scripts/dump-logic.mjs",
     "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {

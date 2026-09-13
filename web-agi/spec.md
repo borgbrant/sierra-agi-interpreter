@@ -175,8 +175,9 @@ uses, including its validation.
 
 ### OBJECT
 
-Holds the inventory items and the maximum number of animated objects. Most games
-encrypt it: bytes are XORed cyclically against a fixed 11-character key
+Holds the inventory items and the maximum number of animated objects — which is
+a floor for the view table's size and not a description of it, see
+[Objects and sprites](#objects-and-sprites). Most games encrypt it: bytes are XORed cyclically against a fixed 11-character key
 (`Avis Durgan`; AGDS games use `Alex Simkin`). Some early games do not encrypt at
 all, so the loader must detect which it is holding rather than assume.
 
@@ -454,6 +455,15 @@ build asset; it is not read from the game files.
 
 The view table holds the animated objects. Object 0 is ego, the character the
 player controls; the rest are controlled entirely by scripts.
+
+Its size is the interpreter's, not the game's: a fixed table, larger than any
+game asks for, so that a script reaching past the end is ignored rather than
+crashing. What it must not be is sized to *one* game. OBJECT records how many
+animated objects a game means to use and its scripts then address slots by
+number up to that, and the two bundled games do not agree — Leisure Suit Larry
+says sixteen, King's Quest says seventeen and means it, animating object 16 in
+the leprechauns' treasury. A sixteen-slot table brings that room up without
+whatever object 16 is and refuses every command that addresses it (M23).
 
 Each entry tracks its view, loop and cel, its position, direction, step and cycle
 timing, its priority, and a set of flags covering how it moves, whether it
@@ -1380,6 +1390,9 @@ regression   each fixed game bug becomes a test that runs the shortest cycle
              sequence reproducing it
 round trip   run N cycles, snapshot, run M more, restore the snapshot, run
              those M again, and compare screen hashes
+walk-through a whole game played from its first screen to its last, against a
+             published solution distilled into steps, with every step judged as
+             it is taken
 ```
 
 The round-trip test is how M8 is proved. A snapshot that omits a field restores
@@ -1390,15 +1403,29 @@ The golden tests matter more than usual here: an interpreter has enormous state,
 and most defects show up as a wrong picture rather than an exception. Being able
 to say "room 1 renders identically to yesterday" is what makes changes safe.
 
+The walk-throughs are what find the rest. Every defect in M22 and M23 was found
+by a room the engine had never been walked through, and not one of them would
+have been found by a unit test of the command or constant at fault: three
+commands implemented as *most* of what the original does, and a table sized to
+the game that happened to be bundled first. Each walk-through lives as a
+markdown table of the source's own steps, rooms and points beside a file that
+turns it into steps the harness runs, so the solution and what runs cannot drift
+apart — and a step that does not pay the points its source says it pays fails
+there, rather than becoming a wrong total a hundred and sixty steps later. What
+makes them affordable is a fixed random seed: both games play in about three
+seconds together, which is a test and not an errand.
+
 Rendering is testable headlessly because the engine composes into a pixel buffer;
 only the final blit needs a canvas.
 
 ## Milestones
 
-Each milestone ends with something observable, not just code. M0-M19 are done.
+Each milestone ends with something observable, not just code. M0-M23 are done.
 The numbering is the one [plan.md](plan.md)
 works to, and that document records what each one turned out to need --
-including where it contradicted what was written here first.
+including where it contradicted what was written here first. M20 to M22 are
+recorded there and not repeated in the list below; what they changed about this
+document is in the sections that describe it.
 
 ```text
 M0  Workspace foundation
@@ -1529,6 +1556,23 @@ M19 The composite monitor
     exact; eight of the twelve hues within 30 degrees of their own and
     the outlier recorded; and colour fringing at boundaries, because the
     chroma filter is wider than a colour cycle.
+
+M23 The second game, played out
+    Both walk-throughs run end to end as tests. Leisure Suit Larry
+    finishes on its source's 222 points; King's Quest I on every point
+    its own source's table pays. What the second of those found is a
+    constant sized to the first game: the view table held sixteen slots,
+    where King's Quest's OBJECT file declares seventeen animated objects
+    and logic 77 animates object 16. It also found that the game cannot
+    be played in the order its source gives -- the giant needs the magic
+    shield, which is down a well the source visits afterwards -- and that
+    the game pays one point more than the 158 logic 0 calls its maximum,
+    because logic 2 pays for opening the castle door a second time and
+    coming home to the king means opening it a second time.
+    Ends with: both games played from their first screen to their last by
+    a test, every step judged as it is taken against the points its
+    source says it pays, and the view table sized from what a game says
+    it needs rather than from what one game happened to need.
 ```
 
 ```text
@@ -1540,6 +1584,10 @@ M3  complete    M7  complete    M11 complete     M16 complete
                                                  M17 complete
                                                  M18 complete
                                                  M19 complete
+                                                 M20 complete
+                                                 M21 complete
+                                                 M22 complete
+                                                 M23 complete
 ```
 
 ## What the engine takes from the game, and from beside it (M18)

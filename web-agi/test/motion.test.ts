@@ -387,6 +387,59 @@ test('an object sharing a base row with an ignoring object can still walk away',
   assert.equal(collides(m.viewTable, ego), false);
 });
 
+test('a blocked follower commits to its detour instead of re-choosing', () => {
+  // A follower that picked a fresh random direction every cycle it failed to
+  // move would jitter against whatever it walked into and stay glued to the
+  // other side of it. The original sends it off for a distance measured
+  // against the room, which is what lets a player get away.
+  const m = walkable();
+  const follower = standing(m, 1, 40, 100);
+  follower.motion = MOTION.FOLLOW_EGO;
+  follower.followStepSize = 10;
+  follower.followFlag = 30;
+  follower.followStarted = true;
+  follower.didNotMove = true;
+  standing(m, 0, 120, 160);
+
+  checkAllMotions(m);
+  assert.ok(follower.followCount > 0, 'a detour was committed to');
+  assert.ok(follower.direction !== 0, 'and a direction taken');
+
+  // While the detour lasts the direction is left alone, however the chase goes.
+  const away = follower.direction;
+  follower.didNotMove = false;
+  checkAllMotions(m);
+  assert.equal(follower.direction, away, 'the direction is held');
+  assert.ok(follower.followCount >= 0);
+});
+
+test('an object beside another on the same row may step off it', () => {
+  // King's Quest's goat, once he has had the carrot, follows ego a pace behind
+  // and comes to rest alongside him: same base row, spans not quite touching.
+  // Ego's next step is a diagonal one, which brings the spans over each other
+  // -- and takes him off the goat's row rather than onto it. Counting the row
+  // he is leaving as one he crosses pins him there for good, which is what
+  // stopped the goat being led out of the pen at all.
+  const m = walkable();
+  const ego = standing(m, 0, 65, 52, blockView(6, 4));
+  standing(m, 13, 71, 52, blockView(18, 4));
+
+  ego.previousY = 52;
+  ego.previousX = 65;
+  ego.x = 66;
+  ego.y = 53;
+
+  assert.equal(collides(m.viewTable, ego), false, 'the spans overlap, but the row is left behind');
+
+  // Landing back on it is a collision, and so is stepping right over it.
+  ego.y = 52;
+  assert.equal(collides(m.viewTable, ego), true, 'landing on the row');
+
+  ego.previousY = 51;
+  ego.y = 53;
+  assert.equal(collides(m.viewTable, ego), true, 'crossing the row');
+});
+
 test('a moving object collides with a stopped object at its current base row', () => {
   const m = walkable();
   const mover = standing(m, 0, 20, 96);

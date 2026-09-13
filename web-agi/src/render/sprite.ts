@@ -122,13 +122,16 @@ export interface SavedArea {
  * Copy a rectangle out of the screens.
  *
  * The rectangle is clipped to the picture, so an object hanging off an edge
- * saves only the part that is really there.
+ * saves only the part that is really there. Both corners are clipped, not just
+ * the far one: a script may put an object entirely off the picture -- King's
+ * Quest parks one at x=161 -- and an origin outside it would index past the
+ * end of the screens even with nothing to copy.
  */
 export function saveArea(screens: Screens, x: number, y: number, width: number, height: number): SavedArea {
-  const left = Math.max(0, x);
-  const top = Math.max(0, y);
-  const right = Math.min(PICTURE_WIDTH, x + width);
-  const bottom = Math.min(PICTURE_HEIGHT, y + height);
+  const left = Math.min(PICTURE_WIDTH, Math.max(0, x));
+  const top = Math.min(PICTURE_HEIGHT, Math.max(0, y));
+  const right = Math.min(PICTURE_WIDTH, Math.max(left, x + width));
+  const bottom = Math.min(PICTURE_HEIGHT, Math.max(top, y + height));
   const w = Math.max(0, right - left);
   const h = Math.max(0, bottom - top);
 
@@ -146,6 +149,7 @@ export function saveArea(screens: Screens, x: number, y: number, width: number, 
 
 /** Put a saved rectangle back. */
 export function restoreArea(screens: Screens, area: SavedArea): void {
+  if (area.width === 0 || area.height === 0) return;
   for (let row = 0; row < area.height; row++) {
     const to = Screens.index(area.x, area.y + row);
     const from = row * area.width;

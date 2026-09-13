@@ -137,6 +137,9 @@ export type Step = { points?: number } & (
   | { wait: number }
   | { answer: string; times?: number }
   | { swims: boolean }
+  | { signals: boolean }
+  | { flee: number; cycles: number }
+  | { stalk: number; gap: readonly [number, number]; below?: number; cycles?: number }
   | { press: string; times?: number }
   | { save: true }
   | { restore: true }
@@ -161,32 +164,30 @@ export interface Progress {
 export function describe(progress: Progress): string {
   if (!progress.step) return `all ${progress.of} steps, score ${progress.score}`;
   const step = progress.step;
-  const what =
-    'say' in step
-      ? `said(${step.say})`
-      : 'go' in step
-        ? `go ${step.go}`
-        : 'walk' in step
-          ? `walk to ${step.walk.join(',')}`
-          : 'answer' in step
-            ? `answer "${step.answer}"`
-            : 'swims' in step
-              ? `swims = ${step.swims}`
-              : 'repeat' in step
-                ? `${step.repeat.length} steps until the game plays along`
-                : 'press' in step
-                  ? `press ${step.press}`
-                  : 'save' in step
-                    ? 'save'
-                    : 'restore' in step
-                      ? 'restore'
-                      : `wait ${step.wait}`;
+  const what = (): string => {
+    if ('say' in step) return `said(${step.say})`;
+    if ('go' in step) return `go ${step.go}`;
+    if ('walk' in step) return `walk to ${step.walk.join(',')}`;
+    if ('answer' in step) return `answer "${step.answer}"`;
+    if ('swims' in step) return `swims = ${step.swims}`;
+    if ('signals' in step) return `signals = ${step.signals}`;
+    if ('flee' in step) return `flee object ${step.flee} for ${step.cycles} cycles`;
+    if ('stalk' in step) return `stalk object ${step.stalk} to within ${step.gap.join('-')}`;
+    if ('repeat' in step) return `${step.repeat.length} steps until the game plays along`;
+    if ('press' in step) return `press ${step.press}`;
+    if ('save' in step) return 'save';
+    if ('restore' in step) return 'restore';
+    return `wait ${step.wait}`;
+  };
   return (
-    `stopped at step ${progress.taken + 1} of ${progress.of}, ${what}, ` +
+    `stopped at step ${progress.taken + 1} of ${progress.of}, ${what()}, ` +
     `in room ${progress.room} at ${progress.position.x},${progress.position.y}, ` +
     `score ${progress.score} -- the game said: ${progress.why}`
   );
 }
+
+/** Ego is object 0, in every AGI game. */
+const EGO_NUMBER = 0;
 
 /**
  * How wide a strip along the edge of a room counts as the way out.
@@ -500,21 +501,72 @@ export class Playthrough {
    */
   swims = false;
 
+  /**
+   * Whether the walk planner treats the signal colour as ground.
+   *
+   * On by default, because a game's usual use for it is a trigger the player
+   * is meant to walk over: King's Quest's woodcutter cottage has no door, only
+   * a stripe of it down the inside wall, and a planner that would not tread on
+   * it could never leave the room.
+   *
+   * The climbs are the exception. Up the oak and up the beanstalk the same
+   * colour is painted over everything that is not the branch, and standing on
+   * it drops Graham to the ground -- so those steps turn it off, with a
+   * `{ signals }` step, and the planner then keeps to the climb of its own
+   * accord.
+   */
+  treadsOnSignals = true;
+
   standable(x: number, y: number): boolean {
     const width = Math.max(1, this.ego.width);
     const top = this.ego.ignoresHorizon ? 0 : this.machine.horizon + 1;
 
-    if (x < 0 || x + width > PICTURE_WIDTH) return false;
+    if (x < 0) return false;
     if (y >= PICTURE_HEIGHT || y < top) return false;
 
     const control = this.machine.background.priority;
-    for (let column = 0; column < width; column++) {
+    // Columns past the right edge are skipped rather than counted against the
+    // spot, which is `checkFooting`'s own rule: a sprite wider than the gap it
+    // is standing in hangs off the picture and walks anyway. King's Quest puts
+    // Graham there -- eighteen pixels wide with the goat beside him, and rooms
+    // hand him in at x=154 -- and a planner that called that unstandable could
+    // not move him at all.
+    for (let column = 0; column < width && x + column < PICTURE_WIDTH; column++) {
       const at = control[Screens.index(x + column, y)]!;
       if (at === CONTROL.UNCONDITIONAL_OBSTACLE) return false;
       if (at === CONTROL.CONDITIONAL_OBSTACLE && !this.ego.ignoresBlocks) return false;
       if (at === CONTROL.WATER && !this.swims) return false;
+      if (at === CONTROL.ALARM && !this.treadsOnSignals) return false;
     }
     return true;
+  }
+
+  /**
+   * Whether another character is standing where ego wants to put his feet.
+   *
+   * {@link standable} reads the room's control screen, which is where the
+   * walls are and not where the other characters are. The engine blocks on
+   * both: `collides` refuses a step whose horizontal span overlaps another
+   * object and which lands on that object's base row. A planner that does not
+   * know it walks ego into somebody and then re-plans the same step for ever,
+   * which is what a follower makes permanent -- King's Quest's goat, once he
+   * has had the carrot, walks to ego's shoulder and stays there, and every
+   * route out of the room begins by walking into him.
+   *
+   * Only the base row counts, because that is the row the engine compares: a
+   * character is something to step around, not a wall the height of his view.
+   */
+  occupied(x: number, y: number): boolean {
+    if (this.ego.ignoresObjects) return false;
+    const width = Math.max(1, this.ego.width);
+
+    for (const other of this.machine.viewTable.visible()) {
+      if (other.number === EGO_NUMBER || other.ignoresObjects) continue;
+      if (other.y !== y) continue;
+      if (x + width <= other.x || x >= other.x + Math.max(1, other.width)) continue;
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -553,6 +605,12 @@ export class Playthrough {
     const from = { x: this.ego.x, y: this.ego.y };
 
     const escaping = this.onTheEdge(from.x, from.y);
+    // How far a spot is from the nearest way out of the room. Only used while
+    // escaping, to insist that each step off the strip is a step further in.
+    const egoWidth = Math.max(1, this.ego.width);
+    const top = this.ego.ignoresHorizon ? 0 : this.machine.horizon + 1;
+    const inset = (x: number, y: number) =>
+      Math.min(x, PICTURE_WIDTH - (x + egoWidth), y - top, PICTURE_HEIGHT - 1 - y);
     const previous = new Int32Array(width * PICTURE_HEIGHT).fill(-1);
     const seen = new Uint8Array(width * PICTURE_HEIGHT);
     const queue: number[] = [index(from.x, from.y)];
@@ -579,13 +637,19 @@ export class Playthrough {
         if (nextX < 0 || nextY < 0 || nextX >= width || nextY >= PICTURE_HEIGHT) continue;
         const next = index(nextX, nextY);
         if (seen[next] || !this.standable(nextX, nextY)) continue;
+        // Somebody standing in the way is stepped around rather than into.
+        // No allowance is needed for ego's own square the way the edge below
+        // needs one: only the base row a character is standing on is closed,
+        // so the rows above and below it are always a way out.
+        if (this.occupied(nextX, nextY)) continue;
         // The edge is off limits, with one exception: a room may have put ego
-        // down on it, and he has to be able to step off. So the strip is open
-        // only while he is standing on it, and only right next to him.
-        if (
-          this.onTheEdge(nextX, nextY) &&
-          !(escaping && Math.abs(nextX - from.x) + Math.abs(nextY - from.y) <= 6)
-        ) {
+        // down on it, and he has to be able to step off. So while he is
+        // standing on the strip it stays open -- but never deeper. King's
+        // Quest hands him into the oak wood at x=154, hard against the right
+        // edge, and a step further right walks him straight back out of the
+        // room he has just entered. Sideways along the strip is allowed,
+        // because sometimes it is the only way round whoever is in the way.
+        if (this.onTheEdge(nextX, nextY) && !(escaping && inset(nextX, nextY) >= inset(x, y))) {
           continue;
         }
         seen[next] = 1;
@@ -668,6 +732,153 @@ export class Playthrough {
 
     this.halt();
     return close();
+  }
+
+  /**
+   * Keep away from another object for a while.
+   *
+   * Some rooms are not a puzzle but a chase: King's Quest's giant follows ego
+   * across the clouds and kills him the moment he arrives, and the only thing
+   * that stops him is that he walks no faster than Graham. Standing still is
+   * fatal and so is arriving anywhere -- {@link walkTo} stops on its target,
+   * and one cycle of standing is all the hunter needs.
+   *
+   * So this steers rather than routes: every cycle it takes the direction that
+   * puts the most ground between the two, and keeps going. A direction is only
+   * changed when the one being held stops being the best, which keeps ego
+   * running in long lines rather than shuffling on the spot.
+   *
+   * @returns whether ego was still on his feet at the end
+   */
+  flee(from: number, cycles: number): boolean {
+    const hunter = this.machine.viewTable.at(from);
+    if (!hunter) {
+      this.run(cycles);
+      return true;
+    }
+
+    const width = Math.max(1, this.ego.width);
+    const gap = (x: number, y: number) =>
+      Math.abs(x + (width >> 1) - (hunter.x + (hunter.width >> 1))) + Math.abs(y - hunter.y);
+
+    let holding: Direction | null = null;
+
+    for (let i = 0; i < cycles; i++) {
+      if (this.machine.stopped) return false;
+
+      // Three steps ahead, not one: a direction is worth taking for the ground
+      // it opens up, and one pixel of it never looks different from another.
+      let best: Direction | null = null;
+      let bestGap = -1;
+      for (const direction of Object.keys(ARROW) as Direction[]) {
+        const { dx, dy } = STEP[direction];
+        const to = { x: this.ego.x + dx * 3, y: this.ego.y + dy * 3 };
+        if (!this.standable(to.x, to.y) || this.onTheEdge(to.x, to.y)) continue;
+        const room = gap(to.x, to.y);
+        // Ties go to the direction already being held, so ego runs in a line.
+        if (room > bestGap || (room === bestGap && direction === holding)) {
+          bestGap = room;
+          best = direction;
+        }
+      }
+
+      if (!best) {
+        this.run(1);
+        continue;
+      }
+      if (best !== holding) {
+        this.face(best);
+        holding = best;
+      }
+      this.run(1);
+    }
+
+    this.halt();
+    return !this.machine.stopped;
+  }
+
+  /**
+   * Close on another object until ego is a given distance from it, and stop.
+   *
+   * The mirror of {@link flee}, and needed for the same reason: the thing
+   * being approached is moving. King's Quest asks for it twice. The condor
+   * takes Graham up the mountain only if he jumps while he is between twenty
+   * and thirty-five away from it and standing well below it, and the rat takes
+   * the cheese only from between sixteen and thirty-four -- nearer than that
+   * and it is on him, which kills. Neither band can be reached by walking to a
+   * spot, because the spot has moved by the time ego gets there.
+   *
+   * So this steers, a cycle at a time, towards the point `below` pixels under
+   * the object, and stops the moment the gap is inside the band. `below` is
+   * both where it aims and part of what it waits for: the condor will not take
+   * anyone who is not underneath it.
+   *
+   * The gap is AGI's own `distance` -- the two centres, across plus down --
+   * because that is the number the room's script will be comparing.
+   *
+   * @returns whether ego ended up inside the band
+   */
+  stalk(after: number, gap: readonly [number, number], below = 0, cycles = 400): boolean {
+    const quarry = this.machine.viewTable.at(after);
+    if (!quarry) return false;
+
+    const width = Math.max(1, this.ego.width);
+    const away = (x: number, y: number) =>
+      Math.abs(x + (width >> 1) - (quarry.x + (quarry.width >> 1))) + Math.abs(y - quarry.y);
+    const arrived = () =>
+      quarry.drawn &&
+      away(this.ego.x, this.ego.y) >= gap[0] &&
+      away(this.ego.x, this.ego.y) <= gap[1] &&
+      this.ego.y - quarry.y >= below;
+
+    // Ego is steered towards the middle of the band rather than towards the
+    // object itself, so that coming from too near backs him off again.
+    const wanted = (gap[0] + gap[1]) >> 1;
+    let holding: Direction | null = null;
+
+    for (let i = 0; i < cycles && !this.machine.stopped; i++) {
+      if (arrived()) {
+        this.halt();
+        return true;
+      }
+      if (!quarry.drawn || !this.machine.playerControl) {
+        this.run(1);
+        continue;
+      }
+
+      // How wrong a spot is: how far its gap falls from the middle of the
+      // band, plus whatever is still needed to get underneath the object.
+      const cost = (x: number, y: number) =>
+        Math.abs(away(x, y) - wanted) + Math.max(0, quarry.y + below - y);
+
+      let best: Direction | null = null;
+      let bestCost = cost(this.ego.x, this.ego.y);
+      for (const direction of Object.keys(ARROW) as Direction[]) {
+        const { dx, dy } = STEP[direction];
+        const to = { x: this.ego.x + dx * 3, y: this.ego.y + dy * 3 };
+        if (!this.standable(to.x, to.y) || this.onTheEdge(to.x, to.y)) continue;
+        const wrong = cost(to.x, to.y);
+        // Ties go to the direction already held, as in `flee`, so that ego
+        // walks in lines rather than trembling between two equal steps.
+        if (wrong < bestCost || (wrong === bestCost && direction === holding)) {
+          bestCost = wrong;
+          best = direction;
+        }
+      }
+
+      if (best && best !== holding) {
+        this.face(best);
+        holding = best;
+      } else if (!best) {
+        this.halt();
+        holding = null;
+      }
+      this.run(1);
+    }
+
+    const there = arrived();
+    this.halt();
+    return there;
   }
 
   /**
@@ -803,6 +1014,13 @@ export class Playthrough {
       } else if ('swims' in step) {
         this.swims = step.swims;
         ok = true;
+      } else if ('signals' in step) {
+        this.treadsOnSignals = step.signals;
+        ok = true;
+      } else if ('flee' in step) {
+        ok = this.flee(step.flee, step.cycles);
+      } else if ('stalk' in step) {
+        ok = this.stalk(step.stalk, step.gap, step.below ?? 0, step.cycles ?? 400);
       } else if ('press' in step) {
         for (let n = 0; n < (step.times ?? 1); n++) this.key(step.press);
         this.run(2);
@@ -818,8 +1036,13 @@ export class Playthrough {
         // the room the walk-through wanted him in.
         ok = step.until(this);
         for (let round = 0; !ok && round < (step.times ?? 10); round++) {
-          if (this.play(step.repeat).step) break;
+          // A round that reports failure may still have got what was wanted --
+          // a walk that ends by stepping through a doorway leaves the room and
+          // so fails as a walk -- so the condition is asked either way, and
+          // only a round that failed *and* changed nothing gives up.
+          const failed = this.play(step.repeat).step !== null;
           ok = step.until(this);
+          if (failed && !ok) break;
         }
       } else if ('answer' in step) {
         for (let asked = 0; asked < (step.times ?? 1); asked++) {

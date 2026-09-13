@@ -3676,3 +3676,143 @@ and none of them would have been found by a unit test of the command. The
 remaining commands most likely to be *most* of the original are the ones that
 touch the view table's flags: `reposition`, `start.update`, `end.of.loop`. The
 next second game will say.
+
+## M23 — King's Quest, all the way to the end — complete
+
+The King's Quest I walk-through was played as far as the descent from the
+clouds, sixty-four rows of ninety-four, for a hundred and one points. This is
+the rest of it: `test/walkthrough-kq1.test.ts` now runs the game from the
+castle gate to the king's throne a second time and finishes on every point the
+source's table pays, in about a second and a quarter.
+
+The interesting part is not a defect. It is that the game cannot be played in
+the order the source gives, and that the source's arithmetic — which it warns
+about itself — turns out to be right.
+
+### The order had to change, and the giant is why
+
+Rows 61 and 62 say to stand behind a tree until the giant falls asleep. There is
+no tree: logic 58's screen is open cloud with a few one-pixel trunks on it, and
+the giant is `follow.ego` at ego's own speed, which in a closed room catches
+anybody. A rollout of the chase says inside ninety cycles whatever the player
+does, against the seven hundred and fifty the game wants before he nods off.
+
+What logic 58 asks for instead is one of three protections, and any of them
+turns the giant from `follow.ego` into `wander`:
+
+```text
+flag 79   the ring's invisibility   spent: logic 0 takes its three points back
+                                    when the spell ends, and logic 52 takes
+                                    them at the bottom of the well whether it
+                                    has ended or not
+flag 73   the fairy godmother       2500 cycles, and the walk from where it is
+                                    given to the clouds and back measured ~2900
+flag 102  the magic shield          still in your pocket afterwards
+```
+
+Only the shield survives being used. So rows 65 to 91 — the well, the dragon,
+the condor, the rat and the treasury — are played *before* rows 55 to 64, the
+beanstalk and the clouds, and the giant is met with the shield in hand. Nothing
+else on the path depends on the order.
+
+Two rows are the casualties, and both are walks between screens rather than
+anything typed. Row 65's two ponds are never crossed at all — the well is
+reached from the gnome instead, six screens south and east by the meadows the
+goat was led through, keeping clear of room 21 where the witch flies. And row
+92's "north twice, east twice" is the walk home from the mossy rock, which in
+this order is three acts earlier; from the foot of the mountain the same castle
+door is three screens the other way.
+
+### The score, which is the game's own arithmetic and not the source's
+
+`kq1.md` had recorded that the source's steps total 159 against a stated maximum
+of 158, and supposed the source was one out. It is not. Row for row the table
+and the game agree, and both add to 159.
+
+The odd point is the castle door. Logic 2 pays one for opening it — flag 193 —
+and then one more for opening it a *second* time, flag 206, with nothing else
+asked; and coming home to the king means opening it a second time, because
+nothing else in that room admits anybody and the doors do not open for the
+returning hero on their own. Logic 0 puts 158 in `v7` and calls that full marks.
+So a finished game scores one past them.
+
+This was checked rather than assumed: walking into the open doorway with the
+three treasures does nothing, so the second point cannot be declined.
+
+Four other rows have their points on the wrong line, though every screen's total
+is right: `lower rope` pays nothing and row 69's point is logic 49's for
+arriving in the shaft; row 73's is logic 51's for arriving in the dragon's cave,
+and there is no `go through hole` to type — the way through is a two-pixel box;
+and `climb rope` pays nothing, rows 76 and 77's four being logic 52's, two for
+coming back from the dragon and two for the bucket refilling itself on the way.
+
+### The one defect, which was a table one slot too short
+
+```text
+view table   held sixteen slots. King's Quest's OBJECT file declares seventeen
+             animated objects and its scripts use every one: logic 77, the
+             leprechauns' treasury, animates object 16
+```
+
+`MAX_VIEW_OBJECTS` was 16 — the figure the comment beside it attributed to
+OBJECT, which was true of Leisure Suit Larry and had been read as true of the
+bundled game generally. King's Quest says 17. The treasury came up without
+whatever object 16 is, and every command addressing it was refused as a stub.
+It is now 20, the interpreter's own fixed size, and `test/viewtable.test.ts`
+asserts the table is at least as large as the game says it needs — which is the
+form that survives a third game.
+
+Worth noting what this did *not* disturb: Larry's playthrough passes unchanged.
+Adding slots calls no random numbers, so the fixed seed's sequence did not move.
+
+### What the harness grew
+
+One new kind of step, `stalk`, which is `flee` with the sign changed and sits
+beside it. King's Quest asks for it twice, and neither can be done by walking to
+a spot, because in both cases the thing being approached is walking too:
+
+```text
+the condor   takes nobody who is not between twenty and thirty-five away from
+             it and standing well below it, and it wanders -- turned back north
+             whenever it drops below y=115
+the rat      takes the cheese from between sixteen and thirty-four, and kills
+             anyone who gets nearer
+```
+
+`stalk` steers a cycle at a time towards the middle of the band it is asked for,
+stops the moment it is inside, and reports whether it got there. Coming from too
+near backs ego off again, which is what aiming at the middle rather than at the
+object buys.
+
+### What playing it settled about the source
+
+Recorded beside the table in `kq1.md`, with the rest of what the first
+sixty-four rows had already found:
+
+```text
+row 79   "let the bird take you" is said(jump). Logic 22 wants flag 143, which
+         is what jumping sets
+row 82   the hole is painted with the water control colour, which is how logic
+         48 knows Graham fell in -- and the only thing on this path that needs
+         the harness's `{ swims }`. The ponds it was added for are never crossed
+row 90   one bite, not two. The second answers "You can't eat the mushroom if
+         you don't have it!", because he has eaten it
+row 55   "east twice" is four moves. The screen west of the mossy rock is a
+         swamp, walkable only round its rim, with no crossing from the side you
+         come in on; the flower meadow is reached round the north of it
+row 71   `fill bucket` works as written, though logic 49's own handler is
+         `get water` and refuses it -- logic 101 takes the line first
+```
+
+### What it is worth watching for
+
+The defect here was a constant sized to one game, and the comment beside it said
+so in a way that read as general. The other numbers of that shape are worth a
+look before a third game finds them: the priority band base, the sound channel
+count, and anything else the engine holds as a fixed size rather than reads.
+
+More broadly, both second-game milestones now say the same thing. M22's three
+defects were commands implemented as most of the original; this one was a table
+sized from the wrong game. Neither would have been found by a unit test. What
+finds them is playing a game the engine was not written against, all the way to
+its end.
